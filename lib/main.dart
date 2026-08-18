@@ -1,17 +1,10 @@
-// ============================================================================
-// FILE: lib/main.dart
-// DESCRIPTION: Root entry point and diagnostic terminal interface. Replaces 
-// standard UI with a raw event log and live connection state monitor.
-// ============================================================================
-
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'signaling.dart'; // Import our custom low-level networking module
+import 'signaling.dart'; 
 
 List<CameraDescription> cameras = [];
 
 Future<void> main() async {
-  // Ensure Flutter engine bindings are initialized before calling native APIs
   WidgetsFlutterBinding.ensureInitialized();
   cameras = await availableCameras();
   runApp(const SkateApp());
@@ -37,10 +30,8 @@ class DebugScreen extends StatefulWidget {
 }
 
 class _DebugScreenState extends State<DebugScreen> {
-  // Instantiate our network signaling module instance
   final SignalingService _signaling = SignalingService();
   
-  // Reactive UI state variables tracking live connection health and packet logs
   String _connectionStatus = 'Initializing...';
   final List<String> _logs = [];
 
@@ -50,22 +41,17 @@ class _DebugScreenState extends State<DebugScreen> {
     _initSignaling();
   }
 
-  /// Triggers the network connection sequence against our Void laptop's local IP address
   void _initSignaling() {
-    // Target IP address of the Void Linux machine running Node.js server.js on port 8080
-    const String serverUrl = 'ws://192.168.12.221:8080';
+    const String serverUrl = 'ws://127.0.0.1:8080';
 
-    // Hook into our signaling wrapper with honest, state-driven callbacks
     _signaling.connect(
       serverUrl,
       onStatusChange: (status) {
-        // Triggers UI state updates whenever the socket connection changes state
         setState(() {
           _connectionStatus = status;
         });
       },
       onMessage: (data) {
-        // Triggers UI state updates when incoming relay packets arrive from peers
         setState(() {
           _logs.add('Incoming: $data');
         });
@@ -75,7 +61,6 @@ class _DebugScreenState extends State<DebugScreen> {
 
   @override
   void dispose() {
-    // Ensure we clean up and close network sockets when the widget is destroyed
     _signaling.disconnect();
     super.dispose();
   }
@@ -95,7 +80,6 @@ class _DebugScreenState extends State<DebugScreen> {
                 style: TextStyle(color: Colors.greenAccent, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
-              // Dynamically color-codes connection status based on socket state health
               Text(
                 'Status: $_connectionStatus',
                 style: TextStyle(
@@ -111,7 +95,6 @@ class _DebugScreenState extends State<DebugScreen> {
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 5),
-              // Retro terminal event log container window
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(8),
