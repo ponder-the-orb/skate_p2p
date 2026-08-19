@@ -1,121 +1,68 @@
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
-import 'signaling.dart'; 
+import 'core/state/app_state.dart';
+import 'core/network/signaling_service.dart';
+import 'core/network/packet_dispatcher.dart';
+import 'ui/screens/match_screen.dart';
 
-List<CameraDescription> cameras = [];
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  cameras = await availableCameras();
+void main() {
   runApp(const SkateApp());
 }
 
-class SkateApp extends StatelessWidget {
-  const SkateApp({super.key});
+class SkateApp extends StatefulWidget {
+  const SkateApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: DebugScreen(),
-    );
-  }
+  State<SkateApp> createState() => _SkateAppState();
 }
 
-class DebugScreen extends StatefulWidget {
-  const DebugScreen({super.key});
-
-  @override
-  State<DebugScreen> createState() => _DebugScreenState();
-}
-
-class _DebugScreenState extends State<DebugScreen> {
-  final SignalingService _signaling = SignalingService();
-  
-  String _connectionStatus = 'Initializing...';
-  final List<String> _logs = [];
+class _SkateAppState extends State<SkateApp> {
+  // Core system instances initialized at the top level of the app
+  final AppState _appState = AppState();
+  late final SignalingService _signalingService;
+  late final PacketDispatcher _packetDispatcher;
 
   @override
   void initState() {
     super.initState();
-    _initSignaling();
-  }
+    _packetDispatcher = PacketDispatcher(_appState);
+    _signalingService = SignalingService();
 
-  void _initSignaling() {
-    const String serverUrl = 'ws://127.0.0.1:8080';
-
-    _signaling.connect(
-      serverUrl,
-      onStatusChange: (status) {
-        setState(() {
-          _connectionStatus = status;
-        });
+    // Connect to our local server via ADB reverse tunnel
+    _signalingService.connect(
+      'ws://127.0.0.1:8080',
+      onMessage: (message) {
+        // Route incoming raw bytes through our dispatcher
+        _packetDispatcher.dispatch(message);
       },
-      onMessage: (data) {
-        setState(() {
-          _logs.add('Incoming: $data');
-        });
+      onStatusChange: (status) {
+        print(status);
+        if (status == 'Connected') {
+          _appState.setConnectionStatus(true);
+        } else if (status.contains('Disconnected') || status.contains('Error')) {
+          _appState.setConnectionStatus(false);
+        }
       },
     );
   }
 
   @override
   void dispose() {
-    _signaling.disconnect();
+    _signalingService.disconnect();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'SKATE_P2P // BACKEND DIAGNOSTICS',
-                style: TextStyle(color: Colors.greenAccent, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Status: $_connectionStatus',
-                style: TextStyle(
-                  color: _connectionStatus.contains('Connected') 
-                      ? Colors.greenAccent 
-                      : (_connectionStatus.contains('Connecting') ? Colors.orangeAccent : Colors.redAccent),
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Event Log:',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-              const SizedBox(height: 5),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.withOpacity(0.3)),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: ListView.builder(
-                    itemCount: _logs.length,
-                    itemBuilder: (context, index) {
-                      return Text(
-                        _logs[index],
-                        style: const TextStyle(color: Colors.white70, fontFamily: 'monospace', fontSize: 12),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'skate_p2p',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        primarySwatch: Colors.orange,
+      ),
+      home: MatchScreen(
+        appState: _appState,
+        signalingService: _signalingService,
       ),
     );
   }
