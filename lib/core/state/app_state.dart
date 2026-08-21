@@ -5,10 +5,12 @@ class AppState extends ChangeNotifier {
   int _localLetters = 0;
   int _peerLetters = 0;
   bool _isConnected = false;
+  bool _isMyTurn = true; 
 
   int get localLetters => _localLetters;
   int get peerLetters => _peerLetters;
   bool get isConnected => _isConnected;
+  bool get isMyTurn => _isMyTurn;
 
   void setConnectionStatus(bool status) {
     _isConnected = status;
@@ -22,6 +24,11 @@ class AppState extends ChangeNotifier {
 
   void updatePeerScore(int count) {
     _peerLetters = count.clamp(0, 5);
+    notifyListeners();
+  }
+
+  void setTurnState(bool myTurn) {
+    _isMyTurn = myTurn;
     notifyListeners();
   }
 

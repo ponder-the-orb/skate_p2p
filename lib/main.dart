@@ -1,68 +1,106 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'core/state/app_state.dart';
-import 'core/network/signaling_service.dart';
 import 'core/network/packet_dispatcher.dart';
-import 'ui/screens/match_screen.dart';
+import 'core/network/network_service.dart';
+import 'core/network/binary_packer.dart';
 
 void main() {
-  runApp(const SkateApp());
+  final appState = AppState();
+  final dispatcher = PacketDispatcher(appState);
+  final network = NetworkService(dispatcher, appState);
+
+  runApp(
+    ChangeNotifierProvider.value(
+      value: appState,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: SkateGameScreen(network: network),
+      ),
+    ),
+  );
 }
 
-class SkateApp extends StatefulWidget {
-  const SkateApp({Key? key}) : super(key: key);
-
-  @override
-  State<SkateApp> createState() => _SkateAppState();
-}
-
-class _SkateAppState extends State<SkateApp> {
-  // Core system instances initialized at the top level of the app
-  final AppState _appState = AppState();
-  late final SignalingService _signalingService;
-  late final PacketDispatcher _packetDispatcher;
-
-  @override
-  void initState() {
-    super.initState();
-    _packetDispatcher = PacketDispatcher(_appState);
-    _signalingService = SignalingService();
-
-    // Connect to our local server via ADB reverse tunnel
-    _signalingService.connect(
-      'ws://127.0.0.1:8080',
-      onMessage: (message) {
-        // Route incoming raw bytes through our dispatcher
-        _packetDispatcher.dispatch(message);
-      },
-      onStatusChange: (status) {
-        print(status);
-        if (status == 'Connected') {
-          _appState.setConnectionStatus(true);
-        } else if (status.contains('Disconnected') || status.contains('Error')) {
-          _appState.setConnectionStatus(false);
-        }
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _signalingService.disconnect();
-    super.dispose();
-  }
+class SkateGameScreen extends StatelessWidget {
+  final NetworkService network;
+  const SkateGameScreen({Key? key, required this.network}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'skate_p2p',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primarySwatch: Colors.orange,
+    // This watches your AppState and rebuilds the screen when variables change
+    final state = context.watch<AppState>(); 
+    
+    // Convert 0-5 into S-K-A-T-E strings
+    const skateLetters = ["", "S", "S-K", "S-K-A", "S-K-A-T", "S-K-A-T-E"];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(state.isConnected ? 'STATUS: CONNECTED' : 'STATUS: OFFLINE'),
+        backgroundColor: state.isConnected ? Colors.green[900] : Colors.red[900],
       ),
-      home: MatchScreen(
-        appState: _appState,
-        signalingService: _signalingService,
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // NETWORK CONTROLS
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton(
+                onPressed: () => network.host(8080),
+                child: const Text('HOST'),
+              ),
+              ElevatedButton(
+                // Hardcoded local ADB tunnel IP for now
+                onPressed: () => network.connect('127.0.0.1', 8080),
+                child: const Text('CONNECT'),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 40),
+
+          // SCOREBOARD
+          Text('PEER: ${skateLetters[state.peerLetters]}', style: const TextStyle(fontSize: 32, color: Colors.redAccent)),
+          const SizedBox(height: 20),
+          Text('YOU: ${skateLetters[state.localLetters]}', style: const TextStyle(fontSize: 32, color: Colors.blueAccent)),
+
+          const SizedBox(height: 40),
+
+          // GAME CONTROLS (Only show if connected)
+          if (state.isConnected) ...[
+            Text(state.isMyTurn ? "YOUR TURN (SETTING)" : "PEER'S TURN (MATCHING)"),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    // Update local state
+                    int newScore = state.localLetters + 1;
+                    state.updateLocalScore(newScore);
+                    
+                    // Pack and send across network
+                    final packet = BinaryPacker.packScoreUpdate(senderId: 1024, lettersCount: newScore);
+                    network.sendPacket(packet);
+                  },
+                  child: const Text('I BAILED (+1 Letter)'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    // Flip turn flag
+                    state.setTurnState(!state.isMyTurn);
+                    
+                    // Pack and send across network
+                    final packet = BinaryPacker.packTurnState(senderId: 1024, isMyTurn: !state.isMyTurn);
+                    network.sendPacket(packet);
+                  },
+                  child: const Text('PASS TURN'),
+                ),
+              ],
+            ),
+          ]
+        ],
       ),
     );
   }
