@@ -1,11 +1,16 @@
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../state/app_state.dart';
+import 'packet_codec.dart';
 
 /// Routes validated inbound packets to state changes.
 ///
-/// Speaks the legacy v0 format (PROTOCOL.md Appendix A):
-/// 4-byte header `[opcode:1][senderId:2][payloadLen:1]` + payload.
+/// Branches on byte 0:
+/// - 0x01 -> v1 control frame (PROTOCOL.md §5)
+/// - any other byte -> legacy v0 format (PROTOCOL.md Appendix A)
+///
 /// Validation discipline follows PROTOCOL.md §3: malformed input is
 /// dropped and logged, never thrown on.
 class PacketDispatcher {
@@ -16,7 +21,7 @@ class PacketDispatcher {
   /// v0 header size in bytes.
   static const int headerSize = 4;
 
-  /// Expected total packet size per known opcode (all v0 packets are fixed
+  /// Expected total packet size per known legacy opcode (all v0 packets are fixed
   /// size: header + 1-byte payload).
   static const Map<int, int> _expectedSizes = {
     0x02: 5, // score update
@@ -35,6 +40,43 @@ class PacketDispatcher {
       _drop('empty packet');
       return;
     }
+
+    final firstByte = bytes[0];
+    if (firstByte == 0x01) {
+      // v1 control frame path
+      final packet = PacketCodec.decode(bytes);
+      if (packet == null) {
+        // Drop and log is handled inside decode
+        return;
+      }
+
+      switch (packet) {
+        case JoinedPacket():
+          debugPrint(
+            '[<<] RECV JOINED (0x02) | '
+            'PlayerID: ${packet.playerId} | Room: ${packet.roomCode} | Role: ${packet.role}',
+          );
+          appState.handleJoined(
+            playerId: packet.playerId,
+            roomCode: packet.roomCode,
+            role: packet.role,
+          );
+        case PeerJoinedPacket():
+          debugPrint('[<<] RECV PEER_JOINED (0x03) | Peer: ${packet.peerId}');
+          appState.handlePeerJoined(packet.peerId);
+        case PeerLeftPacket():
+          debugPrint('[<<] RECV PEER_LEFT (0x04) | Peer: ${packet.peerId}');
+          appState.handlePeerLeft(packet.peerId);
+        case ErrorPacket():
+          debugPrint('[<<] RECV ERROR (0x0F) | Code: ${packet.errorCode}');
+          appState.handleRoomError(packet.errorCode);
+        case JoinPacket():
+          _drop('client received JOIN packet');
+      }
+      return;
+    }
+
+    // Any other first byte -> existing legacy path, unchanged
     if (bytes.length < headerSize) {
       _drop('short packet: ${bytes.length} B < $headerSize B header');
       return;

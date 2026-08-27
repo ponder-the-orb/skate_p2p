@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/network/packet_dispatcher.dart';
 import 'core/network/signaling_service.dart';
 import 'core/state/app_state.dart';
+import 'ui/screens/lobby_screen.dart';
 import 'ui/screens/match_screen.dart';
 
 /// Relay endpoint. Localhost works through an ADB reverse tunnel in dev.
@@ -14,13 +15,22 @@ void main() {
   final dispatcher = PacketDispatcher(appState);
   final signalingService = SignalingService();
 
-  signalingService.connect(
-    relayUrl,
-    onMessage: dispatcher.dispatch,
-    onStatusChange: (status) {
-      appState.setConnectionStatus(status == 'Connected');
-    },
-  );
+  void doConnect() {
+    signalingService.connect(
+      relayUrl,
+      onMessage: dispatcher.dispatch,
+      onStatusChange: (status) {
+        appState.setConnectionStatus(status == 'Connected');
+      },
+    );
+  }
+
+  appState.setReconnectCallback(() {
+    signalingService.disconnect();
+    doConnect();
+  });
+
+  doConnect();
 
   runApp(
     ChangeNotifierProvider.value(
@@ -28,9 +38,20 @@ void main() {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark(),
-        home: MatchScreen(
-          appState: appState,
-          signalingService: signalingService,
+        home: Consumer<AppState>(
+          builder: (context, state, child) {
+            if (state.phase == ClientPhase.inMatch) {
+              return MatchScreen(
+                appState: state,
+                signalingService: signalingService,
+              );
+            } else {
+              return LobbyScreen(
+                appState: state,
+                signalingService: signalingService,
+              );
+            }
+          },
         ),
       ),
     ),

@@ -8,7 +8,7 @@ class MatchScreen extends StatelessWidget {
   final AppState appState;
   final SignalingService signalingService;
 
-const MatchScreen({
+  const MatchScreen({
     super.key,
     required this.appState,
     required this.signalingService,
@@ -20,11 +20,24 @@ const MatchScreen({
     return AnimatedBuilder(
       animation: appState,
       builder: (context, child) {
+        final roleString = appState.role == 1 ? 'SETTER' : 'DEFENDER';
+        final roomCodeString =
+            appState.roomCode?.toString().padLeft(5, '0') ?? '-----';
+
         return Scaffold(
           appBar: AppBar(
-            title: const Text('skate_p2p match'),
+            title: const Text('SKATE P2P MATCH'),
             backgroundColor: Colors.black87,
             foregroundColor: Colors.white,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.exit_to_app),
+                tooltip: 'Leave Match',
+                onPressed: () {
+                  appState.handleLeaveMatch();
+                },
+              ),
+            ],
           ),
           body: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -32,21 +45,77 @@ const MatchScreen({
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Connection Status Indicator
-                Center(
-                  child: Text(
-                    appState.isConnected
-                        ? 'STATUS: CONNECTED (BINARY PIPE ACTIVE)'
-                        : 'STATUS: DISCONNECTED',
-                    style: TextStyle(
-                      color: appState.isConnected
-                          ? Colors.greenAccent
-                          : Colors.redAccent,
-                      fontWeight: FontWeight.bold,
+                // Identity & Status Info
+                Card(
+                  color: Colors.blueGrey.withValues(alpha: 0.1),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'ROOM CODE:',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              roomCodeString,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.greenAccent,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'MY PLAYER ID:',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '${appState.playerId ?? "unknown"}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'ROLE:',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              roleString,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amberAccent,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 30),
 
                 // Scoreboard Card
                 Card(
@@ -101,9 +170,9 @@ const MatchScreen({
                     // Increment local view of peer's letters or fire a test packet
                     final nextLetters = (appState.peerLetters + 1) % 6;
 
-                    // Pack and send binary packet: Opcode 0x02, Sender 1024
+                    // Pack and send binary packet: Opcode 0x02, Sender is the assigned playerId
                     final packet = BinaryPacker.packScoreUpdate(
-                      senderId: 1024,
+                      senderId: appState.playerId ?? 0,
                       lettersCount: nextLetters,
                     );
 
@@ -113,6 +182,20 @@ const MatchScreen({
                     'GIVE PEER A LETTER (TEST 0x02)',
                     style: TextStyle(fontSize: 16),
                   ),
+                ),
+
+                const SizedBox(height: 20),
+
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: () {
+                    appState.handleLeaveMatch();
+                  },
+                  child: const Text('LEAVE MATCH'),
                 ),
               ],
             ),
