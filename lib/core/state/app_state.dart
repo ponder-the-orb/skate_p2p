@@ -5,7 +5,7 @@ class AppState extends ChangeNotifier {
   int _localLetters = 0;
   int _peerLetters = 0;
   bool _isConnected = false;
-  bool _isMyTurn = true; 
+  bool _isMyTurn = true;
 
   int get localLetters => _localLetters;
   int get peerLetters => _peerLetters;
@@ -31,5 +31,4 @@ class AppState extends ChangeNotifier {
     _isMyTurn = myTurn;
     notifyListeners();
   }
-
 }

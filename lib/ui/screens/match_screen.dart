@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/state/app_state.dart';
 import '../../core/network/signaling_service.dart';
 import '../../core/network/binary_packer.dart';
@@ -7,11 +8,11 @@ class MatchScreen extends StatelessWidget {
   final AppState appState;
   final SignalingService signalingService;
 
-  const MatchScreen({
-    Key? key,
+const MatchScreen({
+    super.key,
     required this.appState,
     required this.signalingService,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,13 +31,17 @@ class MatchScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+              children: [
                 // Connection Status Indicator
                 Center(
                   child: Text(
-                    appState.isConnected ? 'STATUS: CONNECTED (BINARY PIPE ACTIVE)' : 'STATUS: DISCONNECTED',
+                    appState.isConnected
+                        ? 'STATUS: CONNECTED (BINARY PIPE ACTIVE)'
+                        : 'STATUS: DISCONNECTED',
                     style: TextStyle(
-                      color: appState.isConnected ? Colors.greenAccent : Colors.redAccent,
+                      color: appState.isConnected
+                          ? Colors.greenAccent
+                          : Colors.redAccent,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -50,15 +55,33 @@ class MatchScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(20.0),
                     child: Column(
                       children: [
-                        const Text('SCOREBOARD', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'SCOREBOARD',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const Divider(),
                         const SizedBox(height: 10),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _ScoreColumn(label: 'LOCAL', letters: appState.localLetters),
-                            const Text('VS', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                            _ScoreColumn(label: 'PEER', letters: appState.peerLetters),
+                            _ScoreColumn(
+                              label: 'LOCAL',
+                              letters: appState.localLetters,
+                            ),
+                            const Text(
+                              'VS',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            _ScoreColumn(
+                              label: 'PEER',
+                              letters: appState.peerLetters,
+                            ),
                           ],
                         ),
                       ],
@@ -77,16 +100,19 @@ class MatchScreen extends StatelessWidget {
                   onPressed: () {
                     // Increment local view of peer's letters or fire a test packet
                     final nextLetters = (appState.peerLetters + 1) % 6;
-                    
+
                     // Pack and send binary packet: Opcode 0x02, Sender 1024
                     final packet = BinaryPacker.packScoreUpdate(
-                      senderId: 1024, 
+                      senderId: 1024,
                       lettersCount: nextLetters,
                     );
-                    
+
                     signalingService.sendBinary(packet);
                   },
-                  child: const Text('GIVE PEER A LETTER (TEST 0x02)', style: TextStyle(fontSize: 16)),
+                  child: const Text(
+                    'GIVE PEER A LETTER (TEST 0x02)',
+                    style: TextStyle(fontSize: 16),
+                  ),
                 ),
               ],
             ),
@@ -107,7 +133,9 @@ class _ScoreColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     // S-K-A-T-E spelling helper
     const skateString = "SKATE";
-    String displayedLetters = letters == 0 ? "-" : skateString.substring(0, letters);
+    String displayedLetters = letters == 0
+        ? "-"
+        : skateString.substring(0, letters);
 
     return Column(
       children: [
@@ -115,7 +143,11 @@ class _ScoreColumn extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           displayedLetters,
-          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2),
+          style: const TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2,
+          ),
         ),
         const SizedBox(height: 4),
         Text('$letters/5', style: const TextStyle(fontSize: 12)),
@@ -123,4 +155,3 @@ class _ScoreColumn extends StatelessWidget {
     );
   }
 }
-
