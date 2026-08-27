@@ -136,3 +136,10 @@ Until v1 ships end-to-end, the server disambiguates by first byte:
   socket in the sender's room; never parsed, never echoed, never cross-room.
 This works because the v0 handshake (first byte 0x01) was deleted in M0.
 Strict §4 termination of 0x00–0x0F begins at M2.
+
+Client side of the same rule: an inbound frame whose first byte is 0x01
+is a v1 control frame from the server (JOINED / PEER_JOINED / PEER_LEFT
+/ ERROR — validate per §3); any other first byte is a legacy v0 game
+frame (0x02 / 0x03) and takes the old dispatcher path. Unambiguous for
+the same reason: the v0 handshake (opcode 0x01) was deleted in M0, and
+clients never receive v1 game opcodes before M2.
