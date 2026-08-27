@@ -1,6 +1,6 @@
 import 'dart:typed_data';
+
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'binary_packer.dart'; 
 
 class SignalingService {
   WebSocketChannel? _channel;
@@ -18,10 +18,6 @@ class SignalingService {
       await _channel!.ready;
 
       onStatusChange('Connected');
-
-      // Live fire test packet on connection
-      final testPacket = BinaryPacker.packScoreUpdate(senderId: 1024, lettersCount: 3);
-      sendBinary(testPacket);
 
       _channel!.stream.listen(
         (message) {
@@ -51,4 +47,3 @@ class SignalingService {
     _channel = null;
   }
 }
-
