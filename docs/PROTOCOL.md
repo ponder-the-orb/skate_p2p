@@ -128,3 +128,11 @@ For the record only. No version byte; 4-byte header `[opcode][senderId:2][payloa
 | `0x01` handshake | 6 B | built & parsed, then ignored | dead code |
 | `0x02` score | 5 B | letter count | the two screens disagree on whose letters the field means (ARCHITECTURE.md, Known Issue #6) |
 | `0x03` turn | 5 B | `isMyTurn` flag | works only via accidental double negation; desyncs under relay echo (Known Issue #5) |
+
+### Transitional server rule — M1 only (retired at M2)
+Until v1 ships end-to-end, the server disambiguates by first byte:
+- 0x01 → v1 control frame (only JOIN is valid from clients); validate per §3.
+- anything else → legacy v0 game frame: forwarded verbatim to the other
+  socket in the sender's room; never parsed, never echoed, never cross-room.
+This works because the v0 handshake (first byte 0x01) was deleted in M0.
+Strict §4 termination of 0x00–0x0F begins at M2.
