@@ -11,3 +11,7 @@ All notable changes to this project will be documented in this file.
 - Removed the hardcoded `1024` player ID for legacy score packets, dynamically using the server-assigned `playerId` instead.
 - Implemented seamless reconnection and cleanup for canceling a match creation, leaving an ongoing match, or when a peer leaves.
 - Added comprehensive unit tests for `PacketCodec` worked examples, malformed packet validation, and `PacketDispatcher` v1/v0 routing.
+
+### Client-Side Network & Reconnect Protocol
+* **Reconnection & State Isolation:** Reconnection logic must use an injected callback wired via `main.dart` to maintain clean architectural layering. 
+* **Stale Channel Safety:** `SignalingService` must explicitly ignore asynchronous callbacks and close events originating from stale or superseded socket connections to prevent race conditions during rapid state transitions.
