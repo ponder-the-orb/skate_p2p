@@ -29,4 +29,4 @@ Two-player S.K.A.T.E. game: Flutter client + Node WebSocket binary relay. You im
 Force-push · rewrite `main` history · commit secrets or tokens · print the GitHub token · edit `docs/ARCHITECTURE.md` or `docs/PROTOCOL.md` (Architect-owned — propose changes in reports)
 
 ## Current focus
-**M1 — Rooms & identity** (see `docs/ROADMAP.md`). The Architect updates this line as milestones close.
+**M2 — Protocol v1 + GameEngine** (see `docs/ROADMAP.md`)

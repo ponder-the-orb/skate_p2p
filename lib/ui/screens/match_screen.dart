@@ -178,7 +178,6 @@ class MatchScreen extends StatelessWidget {
 
                     signalingService.sendBinary(packet);
 
-		    appState.updatePeerScore(nextLetters);
                   },
                   child: const Text(
                     'GIVE PEER A LETTER (TEST 0x02)',
