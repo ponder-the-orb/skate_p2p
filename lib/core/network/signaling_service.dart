@@ -1,49 +1,44 @@
-import 'dart:typed_data';
-
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class SignalingService {
   WebSocketChannel? _channel;
 
-  void connect(
+
+void connect(
     String url, {
     required Function(dynamic) onMessage,
     required Function(String) onStatusChange,
   }) async {
+    WebSocketChannel? channel;
     try {
       onStatusChange('Connecting to $url...');
 
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      channel = WebSocketChannel.connect(Uri.parse(url));
+      _channel = channel;
 
-      await _channel!.ready;
+      await channel.ready;
+      if (channel != _channel) return; // superseded while connecting
 
       onStatusChange('Connected');
 
-      _channel!.stream.listen(
+      channel.stream.listen(
         (message) {
+          if (channel != _channel) return; // stale socket — ignore
           onMessage(message);
         },
         onDone: () {
+          if (channel != _channel) return; // stale close — ignore
           onStatusChange('Disconnected (Server closed connection)');
         },
         onError: (error) {
+          if (channel != _channel) return;
           onStatusChange('Error: $error');
         },
         cancelOnError: true,
       );
     } catch (e) {
+      if (channel != null && channel != _channel) return;
       onStatusChange('Connection Failed: $e');
     }
-  }
-
-  void sendBinary(Uint8List data) {
-    if (_channel != null) {
-      _channel!.sink.add(data);
-    }
-  }
-
-  void disconnect() {
-    _channel?.sink.close();
-    _channel = null;
   }
 }
