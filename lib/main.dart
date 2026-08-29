@@ -25,6 +25,8 @@ void main() {
     );
   }
 
+  appState.setSendCallback(signalingService.sendBinary);
+
   appState.setReconnectCallback(() {
     signalingService.disconnect();
     doConnect();
@@ -41,10 +43,7 @@ void main() {
         home: Consumer<AppState>(
           builder: (context, state, child) {
             if (state.phase == ClientPhase.inMatch) {
-              return MatchScreen(
-                appState: state,
-                signalingService: signalingService,
-              );
+              return MatchScreen(appState: state);
             } else {
               return LobbyScreen(
                 appState: state,

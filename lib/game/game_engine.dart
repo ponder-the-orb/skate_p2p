@@ -63,16 +63,16 @@ class GameState {
   });
 
   const GameState.initial()
-      : phase = GamePhase.lobby,
-        setterId = null,
-        defenderId = null,
-        letters = const {},
-        currentTrickName = null,
-        rematchVotes = const {},
-        firstSetterId = null,
-        winnerId = null,
-        trickDeclared = false,
-        lastRejectedReason = null;
+    : phase = GamePhase.lobby,
+      setterId = null,
+      defenderId = null,
+      letters = const {},
+      currentTrickName = null,
+      rematchVotes = const {},
+      firstSetterId = null,
+      winnerId = null,
+      trickDeclared = false,
+      lastRejectedReason = null;
 
   /// Returns a copy with the given fields replaced.
   ///
@@ -101,8 +101,9 @@ class GameState {
       setterId: setterId ?? this.setterId,
       defenderId: defenderId ?? this.defenderId,
       letters: letters ?? this.letters,
-      currentTrickName:
-          clearTrick ? null : (currentTrickName ?? this.currentTrickName),
+      currentTrickName: clearTrick
+          ? null
+          : (currentTrickName ?? this.currentTrickName),
       trickDeclared: clearTrick ? false : (trickDeclared ?? this.trickDeclared),
       rematchVotes: rematchVotes ?? this.rematchVotes,
       firstSetterId: firstSetterId ?? this.firstSetterId,
@@ -117,26 +118,24 @@ class GameState {
         if (phase == GamePhase.abandoned) {
           return this;
         }
-        return _copyWith(
-          phase: GamePhase.abandoned,
-          lastRejectedReason: null,
-        );
+        return _copyWith(phase: GamePhase.abandoned, lastRejectedReason: null);
 
       case GameStarted():
         if (phase != GamePhase.lobby) {
-          return _copyWith(lastRejectedReason: 'Game can only be started from lobby phase');
+          return _copyWith(
+            lastRejectedReason: 'Game can only be started from lobby phase',
+          );
         }
         if (e.firstSetterId == e.firstDefenderId) {
-          return _copyWith(lastRejectedReason: 'Setter and defender must be different players');
+          return _copyWith(
+            lastRejectedReason: 'Setter and defender must be different players',
+          );
         }
         return GameState(
           phase: GamePhase.setting,
           setterId: e.firstSetterId,
           defenderId: e.firstDefenderId,
-          letters: Map.unmodifiable({
-            e.firstSetterId: 0,
-            e.firstDefenderId: 0,
-          }),
+          letters: Map.unmodifiable({e.firstSetterId: 0, e.firstDefenderId: 0}),
           currentTrickName: null,
           rematchVotes: const {},
           firstSetterId: e.firstSetterId,
@@ -147,10 +146,14 @@ class GameState {
 
       case TrickSet():
         if (phase != GamePhase.setting) {
-          return _copyWith(lastRejectedReason: 'Tricks can only be set during setting phase');
+          return _copyWith(
+            lastRejectedReason: 'Tricks can only be set during setting phase',
+          );
         }
         if (e.playerId != setterId) {
-          return _copyWith(lastRejectedReason: 'Only the current setter can set a trick');
+          return _copyWith(
+            lastRejectedReason: 'Only the current setter can set a trick',
+          );
         }
         // Removed the empty string rejection check
         return _copyWith(
@@ -162,11 +165,16 @@ class GameState {
       case AttemptResult():
         if (phase == GamePhase.setting) {
           if (e.playerId != setterId) {
-            return _copyWith(lastRejectedReason: 'Only the setter can attempt in setting phase');
+            return _copyWith(
+              lastRejectedReason:
+                  'Only the setter can attempt in setting phase',
+            );
           }
           // Guard changed to check boolean flag instead of string null/empty
           if (!trickDeclared) {
-            return _copyWith(lastRejectedReason: 'Cannot attempt a trick before setting it');
+            return _copyWith(
+              lastRejectedReason: 'Cannot attempt a trick before setting it',
+            );
           }
           if (e.landed) {
             return _copyWith(
@@ -184,7 +192,10 @@ class GameState {
           }
         } else if (phase == GamePhase.defending) {
           if (e.playerId != defenderId) {
-            return _copyWith(lastRejectedReason: 'Only the defender can attempt in defending phase');
+            return _copyWith(
+              lastRejectedReason:
+                  'Only the defender can attempt in defending phase',
+            );
           }
           if (e.landed) {
             return _copyWith(
@@ -216,19 +227,29 @@ class GameState {
             }
           }
         } else {
-          return _copyWith(lastRejectedReason: 'Attempts are only valid in setting or defending phases');
+          return _copyWith(
+            lastRejectedReason:
+                'Attempts are only valid in setting or defending phases',
+          );
         }
 
       case RematchVote():
         if (phase != GamePhase.gameOver) {
-          return _copyWith(lastRejectedReason: 'Rematch votes are only valid in gameOver phase');
+          return _copyWith(
+            lastRejectedReason:
+                'Rematch votes are only valid in gameOver phase',
+          );
         }
         if (letters[e.playerId] == null) {
-          return _copyWith(lastRejectedReason: 'Player is not part of the game');
+          return _copyWith(
+            lastRejectedReason: 'Player is not part of the game',
+          );
         }
         final updatedVotes = Set<int>.from(rematchVotes)..add(e.playerId);
         if (updatedVotes.length == 2) {
-          final lastGameFirstDefenderId = letters.keys.firstWhere((id) => id != firstSetterId);
+          final lastGameFirstDefenderId = letters.keys.firstWhere(
+            (id) => id != firstSetterId,
+          );
           final newSetterId = lastGameFirstDefenderId;
           final newDefenderId = firstSetterId!;
 
@@ -236,10 +257,7 @@ class GameState {
             phase: GamePhase.setting,
             setterId: newSetterId,
             defenderId: newDefenderId,
-            letters: Map.unmodifiable({
-              newSetterId: 0,
-              newDefenderId: 0,
-            }),
+            letters: Map.unmodifiable({newSetterId: 0, newDefenderId: 0}),
             currentTrickName: null,
             rematchVotes: const {},
             firstSetterId: newSetterId,

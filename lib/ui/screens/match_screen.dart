@@ -1,229 +1,207 @@
 import 'package:flutter/material.dart';
 
 import '../../core/state/app_state.dart';
-import '../../core/network/signaling_service.dart';
-import '../../core/network/binary_packer.dart';
+import '../../game/game_engine.dart';
 
-class MatchScreen extends StatelessWidget {
+/// Functional match UI: everything is derived from `appState.game` plus the
+/// local `playerId`. Nothing about whose turn it is comes off the wire
+/// (ADR-003). Visual polish is T2.3's job.
+class MatchScreen extends StatefulWidget {
   final AppState appState;
-  final SignalingService signalingService;
 
-  const MatchScreen({
-    super.key,
-    required this.appState,
-    required this.signalingService,
-  });
+  const MatchScreen({super.key, required this.appState});
+
+  @override
+  State<MatchScreen> createState() => _MatchScreenState();
+}
+
+class _MatchScreenState extends State<MatchScreen> {
+  final TextEditingController _trickController = TextEditingController();
+
+  @override
+  void dispose() {
+    _trickController.dispose();
+    super.dispose();
+  }
+
+  void _submitTrick() {
+    widget.appState.setTrick(_trickController.text.trim());
+    _trickController.clear();
+  }
+
+  /// "You set" / "They set" / "Match their trick" / "Waiting…"
+  String _phaseText(GameState game, int? myId) {
+    switch (game.phase) {
+      case GamePhase.setting:
+        return game.setterId == myId ? 'You set' : 'They set';
+      case GamePhase.defending:
+        return game.defenderId == myId ? 'Match their trick' : 'Waiting…';
+      case GamePhase.gameOver:
+        return game.winnerId == myId ? 'You win' : 'You lose';
+      case GamePhase.abandoned:
+        return 'Opponent left';
+      case GamePhase.lobby:
+        return 'Waiting…';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Listen to AppState so this widget rebuilds whenever scores change
     return AnimatedBuilder(
-      animation: appState,
+      animation: widget.appState,
       builder: (context, child) {
-        final roleString = appState.role == 1 ? 'SETTER' : 'DEFENDER';
+        final game = widget.appState.game;
+        final myId = widget.appState.playerId;
+        final peerId = widget.appState.peerId;
         final roomCodeString =
-            appState.roomCode?.toString().padLeft(5, '0') ?? '-----';
+            widget.appState.roomCode?.toString().padLeft(5, '0') ?? '-----';
+
+        // The setter attempts their own trick once they have declared it; the
+        // defender attempts in the defending phase. Exactly one player has a
+        // button at any moment.
+        final isMySetTurn =
+            game.phase == GamePhase.setting &&
+            game.setterId == myId &&
+            !game.trickDeclared;
+        final isMyAttempt =
+            (game.phase == GamePhase.setting &&
+                game.setterId == myId &&
+                game.trickDeclared) ||
+            (game.phase == GamePhase.defending && game.defenderId == myId);
 
         return Scaffold(
           appBar: AppBar(
             title: const Text('SKATE P2P MATCH'),
-            backgroundColor: Colors.black87,
-            foregroundColor: Colors.white,
             actions: [
               IconButton(
                 icon: const Icon(Icons.exit_to_app),
                 tooltip: 'Leave Match',
-                onPressed: () {
-                  appState.handleLeaveMatch();
-                },
+                onPressed: widget.appState.handleLeaveMatch,
               ),
             ],
           ),
           body: Padding(
             padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Identity & Status Info
-                Card(
-                  color: Colors.blueGrey.withValues(alpha: 0.1),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'ROOM CODE:',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              roomCodeString,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.greenAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'MY PLAYER ID:',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              '${appState.playerId ?? "unknown"}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'ROLE:',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              roleString,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.amberAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Room $roomCodeString · you are player ${myId ?? "?"}'),
+                  const SizedBox(height: 24),
+
+                  // Letters, per player, straight from the engine.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _LetterColumn(
+                        label: 'YOU',
+                        letters: game.letters[myId] ?? 0,
+                      ),
+                      _LetterColumn(
+                        label: 'THEM',
+                        letters: game.letters[peerId] ?? 0,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  Text(
+                    _phaseText(game, myId),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                  if (game.trickDeclared) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Trick: ${_trickLabel(game.currentTrickName)}',
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 30),
+                  ],
+                  const SizedBox(height: 24),
 
-                // Scoreboard Card
-                Card(
-                  elevation: 4,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'SCOREBOARD',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Divider(),
-                        const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _ScoreColumn(
-                              label: 'LOCAL',
-                              letters: appState.localLetters,
-                            ),
-                            const Text(
-                              'VS',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            _ScoreColumn(
-                              label: 'PEER',
-                              letters: appState.peerLetters,
-                            ),
-                          ],
-                        ),
-                      ],
+                  // Setter declaring a trick. Empty field = unnamed trick.
+                  if (isMySetTurn) ...[
+                    TextField(
+                      controller: _trickController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Trick name (optional)',
+                      ),
+                      onSubmitted: (_) => _submitTrick(),
                     ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _submitTrick,
+                      child: const Text('SET'),
+                    ),
+                  ],
+
+                  // The attempting player reports their own result.
+                  if (isMyAttempt) ...[
+                    ElevatedButton(
+                      onPressed: () => widget.appState.reportResult(true),
+                      child: const Text('LANDED'),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: () => widget.appState.reportResult(false),
+                      child: const Text('BAILED'),
+                    ),
+                  ],
+
+                  if (game.phase == GamePhase.gameOver) ...[
+                    Text(
+                      game.winnerId == myId
+                          ? 'Game over — you win.'
+                          : 'Game over — you lose.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: widget.appState.voteRematch,
+                      child: Text(
+                        myId != null && game.rematchVotes.contains(myId)
+                            ? 'WAITING FOR REMATCH…'
+                            : 'REMATCH',
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+                  OutlinedButton(
+                    onPressed: widget.appState.handleLeaveMatch,
+                    child: const Text('LEAVE MATCH'),
                   ),
-                ),
-                const SizedBox(height: 40),
-
-                // Action Button: Give Peer a Letter
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepOrange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  onPressed: () {
-                    // Increment local view of peer's letters or fire a test packet
-                    final nextLetters = (appState.peerLetters + 1) % 6;
-
-                    // Pack and send binary packet: Opcode 0x02, Sender is the assigned playerId
-                    final packet = BinaryPacker.packScoreUpdate(
-                      senderId: appState.playerId ?? 0,
-                      lettersCount: nextLetters,
-                    );
-
-                    signalingService.sendBinary(packet);
-
-                  },
-                  child: const Text(
-                    'GIVE PEER A LETTER (TEST 0x02)',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  onPressed: () {
-                    appState.handleLeaveMatch();
-                  },
-                  child: const Text('LEAVE MATCH'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
     );
   }
+
+  static String _trickLabel(String? name) =>
+      (name == null || name.isEmpty) ? '(unnamed)' : name;
 }
 
-class _ScoreColumn extends StatelessWidget {
+class _LetterColumn extends StatelessWidget {
   final String label;
   final int letters;
 
-  const _ScoreColumn({required this.label, required this.letters});
+  const _LetterColumn({required this.label, required this.letters});
 
   @override
   Widget build(BuildContext context) {
     // S-K-A-T-E spelling helper
-    const skateString = "SKATE";
-    String displayedLetters = letters == 0
-        ? "-"
-        : skateString.substring(0, letters);
+    const skateString = 'SKATE';
+    final displayedLetters = letters == 0
+        ? '-'
+        : skateString.substring(0, letters.clamp(0, 5));
 
     return Column(
       children: [
-        Text(label, style: const TextStyle(color: Colors.grey)),
+        Text(label),
         const SizedBox(height: 8),
         Text(
           displayedLetters,
@@ -234,7 +212,7 @@ class _ScoreColumn extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text('$letters/5', style: const TextStyle(fontSize: 12)),
+        Text('$letters/5'),
       ],
     );
   }

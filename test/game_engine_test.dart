@@ -40,24 +40,31 @@ void main() {
       expect(state.currentTrickName, equals('Heelflip')); // Locked in
     });
 
-    test('defending + defender lands -> setting, SAME setter, trick cleared', () {
-      var state = const GameState.initial().apply(const GameStarted(1, 2));
-      state = state.apply(const TrickSet(1, 'Ollie'));
-      state = state.apply(const AttemptResult(1, true)); // Lands, enters defending
+    test(
+      'defending + defender lands -> setting, SAME setter, trick cleared',
+      () {
+        var state = const GameState.initial().apply(const GameStarted(1, 2));
+        state = state.apply(const TrickSet(1, 'Ollie'));
+        state = state.apply(
+          const AttemptResult(1, true),
+        ); // Lands, enters defending
 
-      // Defender lands
-      state = state.apply(const AttemptResult(2, true));
+        // Defender lands
+        state = state.apply(const AttemptResult(2, true));
 
-      expect(state.phase, equals(GamePhase.setting));
-      expect(state.setterId, equals(1)); // Same setter
-      expect(state.defenderId, equals(2));
-      expect(state.currentTrickName, isNull); // Trick cleared
-    });
+        expect(state.phase, equals(GamePhase.setting));
+        expect(state.setterId, equals(1)); // Same setter
+        expect(state.defenderId, equals(2));
+        expect(state.currentTrickName, isNull); // Trick cleared
+      },
+    );
 
     test('defending + defender bails -> that player\'s letters +1; if letters < 5 -> setting, same setter', () {
       var state = const GameState.initial().apply(const GameStarted(1, 2));
       state = state.apply(const TrickSet(1, 'Shuvit'));
-      state = state.apply(const AttemptResult(1, true)); // Lands, enters defending
+      state = state.apply(
+        const AttemptResult(1, true),
+      ); // Lands, enters defending
 
       // Defender bails
       state = state.apply(const AttemptResult(2, false));
@@ -188,7 +195,9 @@ void main() {
       // 1. Player 2 gets a letter
       state = state.apply(const TrickSet(1, 'Kickflip'));
       state = state.apply(const AttemptResult(1, true));
-      state = state.apply(const AttemptResult(2, false)); // Player 2 bails, now has 1 letter
+      state = state.apply(
+        const AttemptResult(2, false),
+      ); // Player 2 bails, now has 1 letter
       expect(state.letters[2], equals(1));
       expect(state.letters[1], equals(0));
 
@@ -229,5 +238,5 @@ void main() {
       expect(state.trickDeclared, isFalse);
       expect(state.currentTrickName, isNull);
     });
- });
+  });
 }
