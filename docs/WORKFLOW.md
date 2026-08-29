@@ -10,7 +10,7 @@ A three-seat studio with one human. This file is the operating manual for the wh
 |---|---|---|---|
 | **Producer** (final say) | Jim | Human | Approves tickets, ferries messages between seats, merges PRs, owns the money |
 | **Lead Architect** | Fable (Claude) | Claude web app (Project) | Owns ARCHITECTURE.md, PROTOCOL.md, ROADMAP.md; writes tickets; reviews reports & diffs; consulted on bugs |
-| **Lead Programmer / PM** | Phil (OpenClaw agent, currently on Gemini 3.7 Flash) | OpenClaw on Jim's machine, via Telegram | Implements tickets exactly as scoped, runs checks, commits, reports |
+| **Lead Programmer** | Claude Code (Max sub) — fallback: Gemini CLI | Jim's machine, terminal | Implements tickets exactly as scoped, runs checks, commits, reports |
 | **Documentarian** (later) | Flash-Lite | TBD (post-M4) | In-line comments, guides, learning aids — after the code stabilizes |
 
 **Division of authority, in one line:** the Architect decides *what and why*, the Programmer decides *how* (within the ticket), the Producer decides *whether*.

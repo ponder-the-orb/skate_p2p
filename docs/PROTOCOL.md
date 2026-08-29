@@ -56,7 +56,9 @@ Total packet size = `5 + payloadLen`.
 | 11 | 1 | `role` — `1` = you set first (room creator), `2` = you defend first |
 
 ### `0x03 PEER_JOINED` (server → client) — payload 2 bytes
-`peerId` uint16. Sent to the creator when the second player joins. Game may begin.
+`peerId` uint16. Sent to BOTH clients when the room becomes full: to the
+creator when the second player joins, and to the joiner immediately after
+its JOINED. Each side thereby learns the other's playerId. Game may begin.
 
 ### `0x04 PEER_LEFT` (server → client) — payload 2 bytes
 `peerId` uint16. The engine transitions to `abandoned`.
