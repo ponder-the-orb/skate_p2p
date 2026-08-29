@@ -1,10 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class SignalingService {
   WebSocketChannel? _channel;
 
-
-void connect(
+  void connect(
     String url, {
     required Function(dynamic) onMessage,
     required Function(String) onStatusChange,
@@ -40,5 +41,16 @@ void connect(
       if (channel != null && channel != _channel) return;
       onStatusChange('Connection Failed: $e');
     }
+  }
+
+  void sendBinary(Uint8List data) {
+    if (_channel != null) {
+      _channel!.sink.add(data);
+    }
+  }
+
+  void disconnect() {
+    _channel?.sink.close();
+    _channel = null;
   }
 }
