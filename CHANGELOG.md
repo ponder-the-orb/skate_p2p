@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M2-T2.3 — Match screen polish
+- `MatchScreen` rebuilt around the seven states of a match, each one readable at arm's length: setter with nothing declared (trick field + SET, an empty name still legal and shown as "Unnamed trick"), setter with a trick declared (the trick + LANDED / BAILED), the peer setting (waiting, opponent marked **UP**), defending as either player (their trick, big, + LANDED / BAILED for the defender), the game-over overlay, and the existing lobby-return on `abandoned`.
+- Letters now render as an accumulating S·K·A·T·E track per player; the most recently gained letter is filled red so a new letter is impossible to miss. No animation dependencies.
+- Game over is a full-screen overlay: WIN / LOSE, the final letters for both players, and a REMATCH button that becomes "Waiting for opponent…" once this player has voted. A peer who votes first is announced ("Opponent wants a rematch").
+- Dark palette local to the match screen; the leave-match affordance stays reachable from the top bar and the overlay.
+- `LobbyScreen`: the notice and error panels share the match screen's bordered-panel styling (labelled `HEADS UP` / `ERROR`). Styling only — no behaviour change.
+- The UI still reads only `AppState.game` plus `playerId`/`peerId`; no rule moved into a widget (ARCHITECTURE.md §3).
+- Tests: `match_screen_test.dart` drives a real `AppState` through its public handlers and intents into each of states 1–6 and asserts the controls and text on screen. No mocks, no test-only setters.
+
 ### M2-T2.2 — Protocol v1 game opcodes, end to end
 - **Relay is strict v1.** Every inbound frame is validated per PROTOCOL.md §3 (version byte `0x01` required). Control opcodes `0x00–0x0F` terminate at the server and are never forwarded — only `JOIN` is valid inbound; game opcodes `0x10–0x2F` are forwarded verbatim to the one other socket in the sender's room, never echoed and never across rooms; `0x30+` is dropped and logged. The transitional first-byte legacy forwarding rule is deleted.
 - `PEER_JOINED` (0x03) is now sent to **both** clients when a room fills (updated PROTOCOL.md §5), so each side learns the other's `playerId` and can seed an identical engine.
