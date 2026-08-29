@@ -161,40 +161,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
       children: [
         // Short Notice if any (e.g. peer left)
         if (notice != null) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blueGrey.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueGrey),
-            ),
-            child: Text(
-              notice,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
+          _Notice(
+            label: 'HEADS UP',
+            message: notice,
+            color: Colors.blueGrey,
+            textColor: Colors.white,
           ),
           const SizedBox(height: 20),
         ],
 
         // Error Notice if any (inline, no SnackBars)
         if (errorNotice != null) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.redAccent),
-            ),
-            child: Text(
-              errorNotice,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.redAccent,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
+          _Notice(
+            label: 'ERROR',
+            message: errorNotice,
+            color: Colors.redAccent,
+            textColor: Colors.redAccent,
           ),
           const SizedBox(height: 20),
         ],
@@ -380,6 +362,58 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A lobby notice — "peer left", "room full". Same bordered-panel language as
+/// the match screen so the two screens read as one app.
+class _Notice extends StatelessWidget {
+  final String label;
+  final String message;
+  final Color color;
+  final Color textColor;
+
+  const _Notice({
+    required this.label,
+    required this.message,
+    required this.color,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
