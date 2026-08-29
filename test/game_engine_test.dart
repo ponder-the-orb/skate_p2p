@@ -88,6 +88,7 @@ void main() {
       expect(state.phase, equals(GamePhase.gameOver));
       expect(state.letters[2], equals(5));
       expect(state.winnerId, equals(1)); // Setter wins
+      expect(state.currentTrickName, isNull); // Trick cleared at game over
     });
 
     test('gameOver + both RematchVote -> letters reset 0/0, votes cleared, roles flip (last game\'s first defender sets first), phase setting', () {
@@ -203,5 +204,30 @@ void main() {
       expect(state.letters[2], equals(1));
       expect(state.letters[1], equals(0));
     });
-  });
+
+    test('unnamed trick (empty name) is legal per PROTOCOL.md §6', () {
+      var state = const GameState.initial().apply(const GameStarted(1, 2));
+
+      // Attempting before declaring ANY trick is still rejected
+      final rejected = state.apply(const AttemptResult(1, true));
+      expect(rejected.phase, equals(GamePhase.setting));
+      expect(rejected.lastRejectedReason, isNotNull);
+
+      // Declaring an unnamed trick is legal
+      state = state.apply(const TrickSet(1, ''));
+      expect(state.trickDeclared, isTrue);
+      expect(state.currentTrickName, equals(''));
+      expect(state.lastRejectedReason, isNull);
+
+      // ...and the setter can now attempt it
+      state = state.apply(const AttemptResult(1, true));
+      expect(state.phase, equals(GamePhase.defending));
+
+      // Declaration resets on the way back to setting
+      state = state.apply(const AttemptResult(2, true));
+      expect(state.phase, equals(GamePhase.setting));
+      expect(state.trickDeclared, isFalse);
+      expect(state.currentTrickName, isNull);
+    });
+ });
 }

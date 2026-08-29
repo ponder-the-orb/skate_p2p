@@ -47,6 +47,7 @@ class GameState {
   final int? firstSetterId;
   final int? winnerId;
   final String? lastRejectedReason;
+  final bool trickDeclared;
 
   const GameState({
     required this.phase,
@@ -57,6 +58,7 @@ class GameState {
     required this.rematchVotes,
     required this.firstSetterId,
     required this.winnerId,
+    required this.trickDeclared,
     this.lastRejectedReason,
   });
 
@@ -69,14 +71,26 @@ class GameState {
         rematchVotes = const {},
         firstSetterId = null,
         winnerId = null,
+        trickDeclared = false,
         lastRejectedReason = null;
 
+  /// Returns a copy with the given fields replaced.
+  ///
+  /// `clearTrick: true` is the ONLY way to null out [currentTrickName] and reset [trickDeclared].
+  /// Passing `currentTrickName: null` is indistinguishable from omitting the
+  /// parameter, so the `??` fallback below would silently keep the old value.
+  ///
+  /// [lastRejectedReason] is direct-assigned with NO `??` fallback, on
+  /// purpose and for the same reason: it must be freshly set or cleared on
+  /// every transition. Do not "fix" it to match the other fields.
   GameState _copyWith({
     GamePhase? phase,
     int? setterId,
     int? defenderId,
     Map<int, int>? letters,
     String? currentTrickName,
+    bool? trickDeclared,
+    bool clearTrick = false,
     Set<int>? rematchVotes,
     int? firstSetterId,
     int? winnerId,
@@ -87,7 +101,9 @@ class GameState {
       setterId: setterId ?? this.setterId,
       defenderId: defenderId ?? this.defenderId,
       letters: letters ?? this.letters,
-      currentTrickName: currentTrickName ?? this.currentTrickName,
+      currentTrickName:
+          clearTrick ? null : (currentTrickName ?? this.currentTrickName),
+      trickDeclared: clearTrick ? false : (trickDeclared ?? this.trickDeclared),
       rematchVotes: rematchVotes ?? this.rematchVotes,
       firstSetterId: firstSetterId ?? this.firstSetterId,
       winnerId: winnerId ?? this.winnerId,
@@ -125,6 +141,7 @@ class GameState {
           rematchVotes: const {},
           firstSetterId: e.firstSetterId,
           winnerId: null,
+          trickDeclared: false,
           lastRejectedReason: null,
         );
 
@@ -135,11 +152,10 @@ class GameState {
         if (e.playerId != setterId) {
           return _copyWith(lastRejectedReason: 'Only the current setter can set a trick');
         }
-        if (e.name.trim().isEmpty) {
-          return _copyWith(lastRejectedReason: 'Trick name cannot be empty');
-        }
+        // Removed the empty string rejection check
         return _copyWith(
           currentTrickName: e.name,
+          trickDeclared: true,
           lastRejectedReason: null,
         );
 
@@ -148,8 +164,9 @@ class GameState {
           if (e.playerId != setterId) {
             return _copyWith(lastRejectedReason: 'Only the setter can attempt in setting phase');
           }
-          if (currentTrickName == null || currentTrickName!.trim().isEmpty) {
-            return _copyWith(lastRejectedReason: 'Cannot attempt a trick before setting its name');
+          // Guard changed to check boolean flag instead of string null/empty
+          if (!trickDeclared) {
+            return _copyWith(lastRejectedReason: 'Cannot attempt a trick before setting it');
           }
           if (e.landed) {
             return _copyWith(
@@ -161,7 +178,7 @@ class GameState {
               phase: GamePhase.setting,
               setterId: defenderId,
               defenderId: setterId,
-              currentTrickName: null,
+              clearTrick: true,
               lastRejectedReason: null,
             );
           }
@@ -172,7 +189,7 @@ class GameState {
           if (e.landed) {
             return _copyWith(
               phase: GamePhase.setting,
-              currentTrickName: null,
+              clearTrick: true,
               lastRejectedReason: null,
             );
           } else {
@@ -186,14 +203,14 @@ class GameState {
                 phase: GamePhase.gameOver,
                 letters: Map.unmodifiable(updatedLetters),
                 winnerId: setterId,
-                currentTrickName: null,
+                clearTrick: true,
                 lastRejectedReason: null,
               );
             } else {
               return _copyWith(
                 phase: GamePhase.setting,
                 letters: Map.unmodifiable(updatedLetters),
-                currentTrickName: null,
+                clearTrick: true,
                 lastRejectedReason: null,
               );
             }
@@ -227,6 +244,7 @@ class GameState {
             rematchVotes: const {},
             firstSetterId: newSetterId,
             winnerId: null,
+            trickDeclared: false,
             lastRejectedReason: null,
           );
         } else {
