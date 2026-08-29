@@ -2,9 +2,50 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:skate_p2p/core/network/binary_packer.dart';
+import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/network/packet_dispatcher.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
+import 'package:skate_p2p/game/game_engine.dart';
+
+/// JOINED for the given identity, as the server would send it.
+Uint8List joinedFixture({
+  required int playerId,
+  required int role,
+  int roomCode = 41235,
+}) {
+  final bytes = Uint8List(12);
+  final data = ByteData.sublistView(bytes);
+  data.setUint8(0, 0x01); // ver
+  data.setUint8(1, 0x02); // op (JOINED)
+  data.setUint16(2, 0); // senderId = server
+  data.setUint8(4, 0x07); // payloadLen
+  data.setUint16(5, playerId);
+  data.setUint32(7, roomCode);
+  data.setUint8(11, role);
+  return bytes;
+}
+
+Uint8List peerJoinedFixture(int peerId) {
+  final bytes = Uint8List(7);
+  final data = ByteData.sublistView(bytes);
+  data.setUint8(0, 0x01);
+  data.setUint8(1, 0x03);
+  data.setUint16(2, 0);
+  data.setUint8(4, 0x02);
+  data.setUint16(5, peerId);
+  return bytes;
+}
+
+Uint8List peerLeftFixture(int peerId) {
+  final bytes = Uint8List(7);
+  final data = ByteData.sublistView(bytes);
+  data.setUint8(0, 0x01);
+  data.setUint8(1, 0x04);
+  data.setUint16(2, 0);
+  data.setUint8(4, 0x02);
+  data.setUint16(5, peerId);
+  return bytes;
+}
 
 void main() {
   late AppState state;
@@ -15,30 +56,6 @@ void main() {
     dispatcher = PacketDispatcher(state);
   });
 
-  group('PacketDispatcher applies valid legacy v0 packets', () {
-    test('score update (0x02) mutates peer score', () {
-      expect(state.peerLetters, equals(0));
-
-      dispatcher.dispatch(
-        BinaryPacker.packScoreUpdate(senderId: 500, lettersCount: 4),
-      );
-
-      expect(state.peerLetters, equals(4));
-    });
-
-    test('turn state (0x03) mutates turn flag', () {
-      dispatcher.dispatch(
-        BinaryPacker.packTurnState(senderId: 500, isMyTurn: false),
-      );
-      expect(state.isMyTurn, isFalse);
-
-      dispatcher.dispatch(
-        BinaryPacker.packTurnState(senderId: 500, isMyTurn: true),
-      );
-      expect(state.isMyTurn, isTrue);
-    });
-  });
-
   group('PacketDispatcher applies valid v1 control packets', () {
     test(
       'JOINED (role 1) updates app state and transitions to waitingForPeer',
@@ -47,18 +64,7 @@ void main() {
         state.setConnectionStatus(true);
         expect(state.phase, equals(ClientPhase.lobbyIdle));
 
-        // JOINED: playerId = 7, roomCode = 41235 (0xA113), role = 1
-        final joinedFixture = Uint8List.fromList([
-          0x01, // ver
-          0x02, // op (JOINED)
-          0x00, 0x00, // senderId = 0
-          0x07, // payloadLen = 7
-          0x00, 0x07, // playerId = 7
-          0x00, 0x00, 0xA1, 0x13, // roomCode = 41235
-          0x01, // role = 1
-        ]);
-
-        dispatcher.dispatch(joinedFixture);
+        dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
 
         expect(state.phase, equals(ClientPhase.waitingForPeer));
         expect(state.playerId, equals(7));
@@ -72,100 +78,59 @@ void main() {
       () {
         state.setConnectionStatus(true);
 
-        // JOINED: playerId = 8, roomCode = 41235 (0xA113), role = 2
-        final joinedFixture = Uint8List.fromList([
-          0x01, // ver
-          0x02, // op (JOINED)
-          0x00, 0x00, // senderId = 0
-          0x07, // payloadLen = 7
-          0x00, 0x08, // playerId = 8
-          0x00, 0x00, 0xA1, 0x13, // roomCode = 41235
-          0x02, // role = 2
-        ]);
-
-        dispatcher.dispatch(joinedFixture);
+        dispatcher.dispatch(joinedFixture(playerId: 8, role: 2));
 
         expect(state.phase, equals(ClientPhase.inMatch));
         expect(state.playerId, equals(8));
         expect(state.roomCode, equals(41235));
         expect(state.role, equals(2));
-        expect(state.isMyTurn, isFalse); // Joiner defends first
       },
     );
 
-    test('PEER_JOINED transitions Creator to inMatch', () {
+    test('PEER_JOINED seeds the creator\'s engine with itself as setter', () {
       state.setConnectionStatus(true);
-
-      // Transition to waitingForPeer first
-      final joinedFixture = Uint8List.fromList([
-        0x01,
-        0x02,
-        0x00,
-        0x00,
-        0x07,
-        0x00,
-        0x07,
-        0x00,
-        0x00,
-        0xA1,
-        0x13,
-        0x01,
-      ]);
-      dispatcher.dispatch(joinedFixture);
+      dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
       expect(state.phase, equals(ClientPhase.waitingForPeer));
 
-      // PEER_JOINED: peerId = 8
-      final peerJoinedFixture = Uint8List.fromList([
-        0x01, // ver
-        0x03, // op (PEER_JOINED)
-        0x00, 0x00, // senderId = 0
-        0x02, // payloadLen = 2
-        0x00, 0x08, // peerId = 8
-      ]);
-
-      dispatcher.dispatch(peerJoinedFixture);
+      dispatcher.dispatch(peerJoinedFixture(8));
 
       expect(state.phase, equals(ClientPhase.inMatch));
-      expect(state.isMyTurn, isTrue); // Creator sets first
+      expect(state.peerId, equals(8));
+      expect(state.game.phase, equals(GamePhase.setting));
+      expect(state.game.setterId, equals(7));
+      expect(state.game.defenderId, equals(8));
     });
 
-    test('PEER_LEFT triggers reconnect callback and clears identity', () {
+    test('PEER_JOINED seeds the joiner\'s engine with the peer as setter', () {
+      state.setConnectionStatus(true);
+      dispatcher.dispatch(joinedFixture(playerId: 8, role: 2));
+
+      dispatcher.dispatch(peerJoinedFixture(7));
+
+      expect(state.phase, equals(ClientPhase.inMatch));
+      expect(state.peerId, equals(7));
+      expect(state.game.phase, equals(GamePhase.setting));
+      expect(state.game.setterId, equals(7));
+      expect(state.game.defenderId, equals(8));
+    });
+
+    test('PEER_LEFT abandons the game, clears identity and reconnects', () {
       state.setConnectionStatus(true);
       bool reconnectCalled = false;
       state.setReconnectCallback(() {
         reconnectCalled = true;
       });
 
-      // Join room first
-      final joinedFixture = Uint8List.fromList([
-        0x01,
-        0x02,
-        0x00,
-        0x00,
-        0x07,
-        0x00,
-        0x07,
-        0x00,
-        0x00,
-        0xA1,
-        0x13,
-        0x01,
-      ]);
-      dispatcher.dispatch(joinedFixture);
+      dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
+      dispatcher.dispatch(peerJoinedFixture(8));
+      expect(state.game.phase, equals(GamePhase.setting));
 
-      // PEER_LEFT: peerId = 8
-      final peerLeftFixture = Uint8List.fromList([
-        0x01, // ver
-        0x04, // op (PEER_LEFT)
-        0x00, 0x00, // senderId = 0
-        0x02, // payloadLen = 2
-        0x00, 0x08, // peerId = 8
-      ]);
+      dispatcher.dispatch(peerLeftFixture(8));
 
-      dispatcher.dispatch(peerLeftFixture);
-
+      expect(state.game.phase, equals(GamePhase.abandoned));
       expect(reconnectCalled, isTrue);
       expect(state.playerId, isNull);
+      expect(state.peerId, isNull);
       expect(state.roomCode, isNull);
       expect(state.role, isNull);
       expect(state.notice, contains('Peer left'));
@@ -174,15 +139,9 @@ void main() {
     test('ERROR (room full) sets error notice on AppState', () {
       state.setConnectionStatus(true);
 
-      final errorFixture = Uint8List.fromList([
-        0x01, // ver
-        0x0F, // op (ERROR)
-        0x00, 0x00, // senderId = 0
-        0x01, // payloadLen = 1
-        0x01, // errorCode = 1 (room full)
-      ]);
-
-      dispatcher.dispatch(errorFixture);
+      dispatcher.dispatch(
+        Uint8List.fromList([0x01, 0x0F, 0x00, 0x00, 0x01, 0x01]),
+      );
 
       expect(state.phase, equals(ClientPhase.lobbyIdle));
       expect(state.errorNotice, equals('Room full'));
@@ -191,54 +150,128 @@ void main() {
     test('ERROR (room not found) sets error notice on AppState', () {
       state.setConnectionStatus(true);
 
-      final errorFixture = Uint8List.fromList([
-        0x01, // ver
-        0x0F, // op (ERROR)
-        0x00, 0x00, // senderId = 0
-        0x01, // payloadLen = 1
-        0x02, // errorCode = 2 (room not found)
-      ]);
-
-      dispatcher.dispatch(errorFixture);
+      dispatcher.dispatch(
+        Uint8List.fromList([0x01, 0x0F, 0x00, 0x00, 0x01, 0x02]),
+      );
 
       expect(state.phase, equals(ClientPhase.lobbyIdle));
       expect(state.errorNotice, equals('Room not found'));
     });
   });
 
+  group('PacketDispatcher routes v1 game packets into the engine', () {
+    setUp(() {
+      // This client is the joiner (player 8); the peer (player 7) sets first.
+      state.setConnectionStatus(true);
+      dispatcher.dispatch(joinedFixture(playerId: 8, role: 2));
+      dispatcher.dispatch(peerJoinedFixture(7));
+    });
+
+    test('TRICK_SET from the peer declares the trick', () {
+      dispatcher.dispatch(
+        PacketCodec.encodeTrickSet(senderId: 7, name: 'kickflip'),
+      );
+
+      expect(state.game.trickDeclared, isTrue);
+      expect(state.game.currentTrickName, equals('kickflip'));
+    });
+
+    test('TRICK_SET with an empty name is a legal unnamed trick', () {
+      dispatcher.dispatch(PacketCodec.encodeTrickSet(senderId: 7, name: ''));
+
+      expect(state.game.trickDeclared, isTrue);
+      expect(state.game.currentTrickName, equals(''));
+    });
+
+    test('ATTEMPT_RESULT from the setter drives the phase transition', () {
+      dispatcher.dispatch(
+        PacketCodec.encodeTrickSet(senderId: 7, name: 'ollie'),
+      );
+      dispatcher.dispatch(
+        PacketCodec.encodeAttemptResult(senderId: 7, landed: true),
+      );
+
+      expect(state.game.phase, equals(GamePhase.defending));
+      expect(state.game.defenderId, equals(8));
+    });
+
+    test('REMATCH from the peer records the peer\'s vote', () {
+      // Drive the game to gameOver: this client (8) defends and bails 5 times.
+      for (var i = 0; i < 5; i++) {
+        dispatcher.dispatch(PacketCodec.encodeTrickSet(senderId: 7, name: ''));
+        dispatcher.dispatch(
+          PacketCodec.encodeAttemptResult(senderId: 7, landed: true),
+        );
+        state.reportResult(false);
+      }
+      expect(state.game.phase, equals(GamePhase.gameOver));
+      expect(state.game.winnerId, equals(7));
+
+      dispatcher.dispatch(PacketCodec.encodeRematch(senderId: 7));
+
+      expect(state.game.rematchVotes, equals({7}));
+      expect(state.game.phase, equals(GamePhase.gameOver));
+    });
+
+    test('a game packet arriving before a peer is known is dropped', () {
+      final fresh = AppState();
+      final freshDispatcher = PacketDispatcher(fresh);
+
+      expect(
+        () => freshDispatcher.dispatch(
+          PacketCodec.encodeTrickSet(senderId: 7, name: 'ollie'),
+        ),
+        returnsNormally,
+      );
+      expect(fresh.game.phase, equals(GamePhase.lobby));
+    });
+  });
+
   group('PacketDispatcher drops malformed input without throwing', () {
     void expectDroppedSilently(List<int> bytes) {
-      final lettersBefore = state.peerLetters;
-      final turnBefore = state.isMyTurn;
+      final phaseBefore = state.game.phase;
 
       expect(
         () => dispatcher.dispatch(Uint8List.fromList(bytes)),
         returnsNormally,
       );
 
-      expect(state.peerLetters, equals(lettersBefore));
-      expect(state.isMyTurn, equals(turnBefore));
+      expect(state.game.phase, equals(phaseBefore));
     }
 
     test('empty buffer []', () {
       expectDroppedSilently([]);
     });
 
-    test('truncated single-opcode buffer [0x02]', () {
-      expectDroppedSilently([0x02]);
+    test('truncated single-opcode buffer [0x01]', () {
+      expectDroppedSilently([0x01]);
     });
 
-    test('header-only buffer claiming a payload it does not carry', () {
-      // Header says payloadLen = 1, but no payload byte follows.
-      expectDroppedSilently([0x02, 0x00, 0x01, 0x01]);
+    test('legacy v0 frames no longer decode', () {
+      // v0 score (0x02) and turn (0x03) frames: first byte is not 0x01, so
+      // they fail the version check and are dropped.
+      expectDroppedSilently([0x02, 0x04, 0x00, 0x01, 0x01]);
+      expectDroppedSilently([0x03, 0x04, 0x00, 0x01, 0x01]);
+    });
+
+    test('header claiming a payload it does not carry', () {
+      expectDroppedSilently([0x01, 0x11, 0x00, 0x07, 0x01]);
     });
 
     test('oversized buffer for a known opcode', () {
-      expectDroppedSilently([0x02, 0x00, 0x01, 0x01, 0x03, 0xFF, 0xFF]);
+      expectDroppedSilently([0x01, 0x11, 0x00, 0x07, 0x01, 0x01, 0xFF, 0xFF]);
     });
 
     test('unknown opcode', () {
-      expectDroppedSilently([0x7F, 0x00, 0x01, 0x01, 0x00]);
+      expectDroppedSilently([0x01, 0x7F, 0x00, 0x01, 0x01, 0x00]);
+    });
+
+    test('reserved SCORE_SYNC (0x12) is dropped', () {
+      expectDroppedSilently([0x01, 0x12, 0x00, 0x07, 0x00]);
+    });
+
+    test('ATTEMPT_RESULT with an out-of-range result byte is dropped', () {
+      expectDroppedSilently([0x01, 0x11, 0x00, 0x07, 0x01, 0x42]);
     });
 
     test('20 random bytes (seeded) never throw', () {
@@ -254,7 +287,7 @@ void main() {
 
     test('non-binary message is dropped', () {
       expect(() => dispatcher.dispatch('not bytes'), returnsNormally);
-      expect(state.peerLetters, equals(0));
+      expect(state.game.phase, equals(GamePhase.lobby));
     });
   });
 }
