@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M3-T3.1 — Preset trick list
+- New `lib/ui/data/trick_presets.dart`: one `const List<String> trickPresets` of 23 common street tricks, ordered roughly easy → hard. It lives under `ui/` because it is picker content, not a rule — the engine, the codec and the relay are untouched by this ticket.
+- `MatchScreen` state 1 (I'm the setter, nothing declared) gains a horizontally scrollable chip row above the trick field. Tapping a chip **fills** the field and leaves it editable; SET remains the single path that declares a trick. Chips never appear in any other state.
+- Free-text entry is unchanged, including the empty name that reads as "Unnamed trick" (PROTOCOL.md §6).
+- Tests: `trick_presets_test.dart` pins the list as non-empty, blank-free, duplicate-free, and every name at most 254 UTF-8 bytes — the `nameLen` uint8 ceiling of `TRICK_SET`. `match_screen_test.dart` state 1 gains chip rendering, tap-fills-the-field-without-declaring, SET-after-a-tap declaring that exact name, and a filled preset still being editable; state 2 asserts the chips are gone.
+
 ### M2-T2.3 — Match screen polish
 - `MatchScreen` rebuilt around the seven states of a match, each one readable at arm's length: setter with nothing declared (trick field + SET, an empty name still legal and shown as "Unnamed trick"), setter with a trick declared (the trick + LANDED / BAILED), the peer setting (waiting, opponent marked **UP**), defending as either player (their trick, big, + LANDED / BAILED for the defender), the game-over overlay, and the existing lobby-return on `abandoned`.
 - Letters now render as an accumulating S·K·A·T·E track per player; the most recently gained letter is filled red so a new letter is impossible to miss. No animation dependencies.
