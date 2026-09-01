@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
 import 'package:skate_p2p/game/game_engine.dart';
+import 'package:skate_p2p/ui/data/trick_presets.dart';
 import 'package:skate_p2p/ui/screens/match_screen.dart';
 
 const int _myId = 7;
@@ -71,6 +72,60 @@ void main() {
       expect(app.game.trickDeclared, isTrue);
       expect(find.text('Unnamed trick'), findsOneWidget);
     });
+
+    testWidgets('offers preset chips above the field', (tester) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      // The row scrolls, so only assert on what has to be reachable first.
+      expect(find.text(trickPresets.first), findsOneWidget);
+    });
+
+    testWidgets('tapping a preset fills the field without declaring', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      await tester.tap(find.text(trickPresets.first));
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller?.text, trickPresets.first);
+      expect(app.game.trickDeclared, isFalse);
+      expect(find.text('SET'), findsOneWidget);
+    });
+
+    testWidgets('SET after a preset tap declares that exact name', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      await tester.tap(find.text(trickPresets.first));
+      await tester.pump();
+      await tester.tap(find.text('SET'));
+      await tester.pump();
+
+      expect(app.game.trickDeclared, isTrue);
+      expect(app.game.currentTrickName, trickPresets.first);
+    });
+
+    testWidgets('a filled preset is still editable before SET', (tester) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      await tester.tap(find.text(trickPresets.first));
+      await tester.pump();
+      await tester.enterText(
+        find.byType(TextField),
+        'switch ${trickPresets.first}',
+      );
+      await tester.tap(find.text('SET'));
+      await tester.pump();
+
+      expect(app.game.currentTrickName, 'switch ${trickPresets.first}');
+    });
   });
 
   group('state 2 — setting, I am the setter, trick declared', () {
@@ -89,6 +144,7 @@ void main() {
       expect(find.text('BAILED'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       expect(find.text('SET'), findsNothing);
+      expect(find.text(trickPresets.first), findsNothing);
     });
   });
 
