@@ -4,6 +4,7 @@ import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
 import 'package:skate_p2p/game/game_engine.dart';
 import 'package:skate_p2p/ui/screens/match_screen.dart';
+import 'package:skate_p2p/ui/widgets/attempt_timer.dart';
 
 const int _myId = 7;
 const int _peerId = 8;
@@ -57,6 +58,8 @@ void main() {
       expect(find.text('LANDED'), findsNothing);
       expect(find.text('BAILED'), findsNothing);
       expect(find.text('WAITING FOR OPPONENT'), findsNothing);
+      // Nothing is being attempted yet, so there is nothing to count down.
+      expect(find.byType(AttemptTimer), findsNothing);
     });
 
     testWidgets('an empty field is legal and reads as "Unnamed trick"', (
@@ -89,6 +92,11 @@ void main() {
       expect(find.text('BAILED'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       expect(find.text('SET'), findsNothing);
+      // The attempt is mine, so I get the advisory clock, on a full minute.
+      expect(find.byType(AttemptTimer), findsOneWidget);
+      expect(find.text('1:00'), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
     });
   });
 
@@ -106,6 +114,8 @@ void main() {
       expect(find.text('heelflip'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       expect(find.text('LANDED'), findsNothing);
+      // The waiting player's screen is unchanged: no second clock.
+      expect(find.byType(AttemptTimer), findsNothing);
     });
   });
 
@@ -123,6 +133,11 @@ void main() {
       expect(find.text('LANDED'), findsOneWidget);
       expect(find.text('BAILED'), findsOneWidget);
       expect(find.text('WAITING FOR OPPONENT'), findsNothing);
+      // Defending is an attempt too — my clock, again on a full minute.
+      expect(find.byType(AttemptTimer), findsOneWidget);
+      expect(find.text('1:00'), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
     });
   });
 
@@ -141,6 +156,7 @@ void main() {
       expect(find.text('WAITING FOR OPPONENT'), findsOneWidget);
       expect(find.text('LANDED'), findsNothing);
       expect(find.byType(TextField), findsNothing);
+      expect(find.byType(AttemptTimer), findsNothing);
     });
   });
 
@@ -160,6 +176,7 @@ void main() {
       expect(find.text('REMATCH'), findsOneWidget);
       // Both S·K·A·T·E tracks are on the overlay, plus the board behind it.
       expect(find.text('E'), findsNWidgets(4));
+      expect(find.byType(AttemptTimer), findsNothing);
     });
 
     testWidgets('losing shows LOSE', (tester) async {
@@ -196,7 +213,75 @@ void main() {
       expect(find.text('REMATCH'), findsOneWidget);
     });
   });
+
+  group('the attempt countdown (advisory only)', () {
+    testWidgets('counts down while the attempt is mine', (tester) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      app.setTrick('switch heel');
+      await tester.pump();
+      expect(find.text('1:00'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 10));
+      expect(find.text('0:50'), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('declaring a new trick restarts it', (tester) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+
+      app.setTrick('first trick');
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 12));
+      expect(find.text('0:48'), findsOneWidget);
+
+      // I land it, the peer bails the match: same setter, new trick to name.
+      app.reportResult(true);
+      await tester.pump();
+      _peerReports(app, landed: false);
+      await tester.pump();
+      expect(find.byType(AttemptTimer), findsNothing);
+
+      app.setTrick('second trick');
+      await tester.pump();
+      expect(find.text('1:00'), findsOneWidget);
+      expect(find.text('0:48'), findsNothing);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets(
+      'at zero it only changes the display — the game does not move',
+      (tester) async {
+        final app = _seatThatSetsFirst();
+        await _pumpMatch(tester, app);
+
+        app.setTrick('impossible');
+        await tester.pump();
+        final phaseBefore = app.game.phase;
+
+        await tester.pump(const Duration(seconds: attemptSeconds));
+
+        expect(find.text(attemptTimeUpMessage), findsOneWidget);
+        // Advisory: no auto-bail, no letter, no event (ADR-003). Still my call.
+        expect(app.game.phase, phaseBefore);
+        expect(app.game.letters[_myId], 0);
+        expect(app.game.trickDeclared, isTrue);
+        expect(find.text('LANDED'), findsOneWidget);
+        expect(find.text('BAILED'), findsOneWidget);
+
+        await _leaveMatchScreen(tester);
+      },
+    );
+  });
 }
+
+/// Tears the screen down so a running countdown can't outlive its test.
+Future<void> _leaveMatchScreen(WidgetTester tester) =>
+    tester.pumpWidget(const SizedBox.shrink());
 
 /// I set and land five tricks; the peer bails every match and spells S.K.A.T.E.
 void _playUntilPeerSpellsSkate(AppState app) {
