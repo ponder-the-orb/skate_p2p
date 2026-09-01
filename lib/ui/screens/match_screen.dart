@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/state/app_state.dart';
 import '../../game/game_engine.dart';
+import '../widgets/attempt_timer.dart';
 
 // Match palette. Dark, high contrast, one acid accent for "your move" and one
 // red for "you ate it". Deliberately local to this screen.
@@ -105,6 +106,7 @@ class _MatchScreenState extends State<MatchScreen> {
                         iAmSetter: iAmSetter,
                         iAmDefender: iAmDefender,
                         mySetTurn: mySetTurn,
+                        myAttempt: myAttempt,
                       ),
                     ),
                     _buildActions(mySetTurn: mySetTurn, myAttempt: myAttempt),
@@ -140,6 +142,7 @@ class _MatchScreenState extends State<MatchScreen> {
     required bool iAmSetter,
     required bool iAmDefender,
     required bool mySetTurn,
+    required bool myAttempt,
   }) {
     final String headline;
     final String sub;
@@ -212,6 +215,16 @@ class _MatchScreenState extends State<MatchScreen> {
           if (game.trickDeclared) ...[
             const SizedBox(height: 24),
             _TrickCard(name: game.currentTrickName, hero: hero),
+          ],
+          // Advisory only, and only for the player who is up (states 2 and 4).
+          // The key restarts the clock on every new attempt.
+          if (myAttempt) ...[
+            const SizedBox(height: 20),
+            AttemptTimer(
+              key: ValueKey(
+                'attempt-${game.phase.name}-${game.currentTrickName}',
+              ),
+            ),
           ],
         ],
       ),
