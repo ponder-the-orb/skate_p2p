@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file.
 - Free-text entry is unchanged, including the empty name that reads as "Unnamed trick" (PROTOCOL.md §6).
 - Tests: `trick_presets_test.dart` pins the list as non-empty, blank-free, duplicate-free, and every name at most 254 UTF-8 bytes — the `nameLen` uint8 ceiling of `TRICK_SET`. `match_screen_test.dart` state 1 gains chip rendering, tap-fills-the-field-without-declaring, SET-after-a-tap declaring that exact name, and a filled preset still being editable; state 2 asserts the chips are gone.
 
+### M3-T3.2 — Attempt countdown (advisory)
+- New `AttemptTimer` (`lib/ui/widgets/attempt_timer.dart`): a 60-second countdown (`attemptSeconds`) in the match screen's dark panel styling, shown to the player whose attempt it is. Self-contained `StatefulWidget` owning its `Timer` (`dart:async` only, no new dependencies) and cancelling it in `dispose()`.
+- **Advisory only.** At 0:00 the panel changes to "TIME — land it or bail" and *nothing else happens*: no auto-bail, no engine event, no packet. A timeout is a conclusion, and conclusions never go on the wire or into the engine (ADR-003). The enforced variant stays in the parking lot.
+- Shown only to the attempting player — the setter in state 2, the defender in state 4. The waiting player's screen is unchanged: two clocks can't be trusted to agree, one clock can't lie to its owner (ARCHITECTURE.md §5).
+- `MatchScreen` renders it under the trick card in states 2 and 4, keyed on the current attempt so the clock restarts on every new trick and every new defense.
+- Zero diff to the engine, net, state, server and protocol.
+- Tests: `attempt_timer_test.dart` (renders the full minute, counts down under `tester.pump`, flips to the time's-up treatment at zero and stops there, restarts on a fresh state, and disposes cleanly — a leaked timer fails the test on its own); `match_screen_test.dart` extended to assert the timer is present in states 2 and 4, absent in 1/3/5/6, restarted by declaring a new trick, and inert at zero.
+
 ### M2-T2.3 — Match screen polish
 - `MatchScreen` rebuilt around the seven states of a match, each one readable at arm's length: setter with nothing declared (trick field + SET, an empty name still legal and shown as "Unnamed trick"), setter with a trick declared (the trick + LANDED / BAILED), the peer setting (waiting, opponent marked **UP**), defending as either player (their trick, big, + LANDED / BAILED for the defender), the game-over overlay, and the existing lobby-return on `abandoned`.
 - Letters now render as an accumulating S·K·A·T·E track per player; the most recently gained letter is filled red so a new letter is impossible to miss. No animation dependencies.
