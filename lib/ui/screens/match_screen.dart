@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/state/app_state.dart';
 import '../../game/game_engine.dart';
+import '../data/trick_presets.dart';
 import '../widgets/attempt_timer.dart';
 
 // Match palette. Dark, high contrast, one acid accent for "your move" and one
@@ -21,7 +22,7 @@ const Color _text = Color(0xFFF3F5F9);
 /// nothing about whose turn it is comes off the wire (ADR-003).
 ///
 /// The states it renders, in ticket order:
-///   1. setting, I'm setter, nothing declared → trick field + SET
+///   1. setting, I'm setter, nothing declared → preset chips + field + SET
 ///   2. setting, I'm setter, declared         → my trick + LANDED / BAILED
 ///   3. setting, peer is setter               → waiting, peer is up
 ///   4. defending, I'm defender               → their trick, huge + LANDED / BAILED
@@ -49,6 +50,15 @@ class _MatchScreenState extends State<MatchScreen> {
   void _submitTrick() {
     widget.appState.setTrick(_trickController.text.trim());
     _trickController.clear();
+  }
+
+  /// A preset chip only fills the field — it never declares. SET stays the
+  /// single commit path, and the filled name is still editable.
+  void _fillTrick(String name) {
+    _trickController.value = TextEditingValue(
+      text: name,
+      selection: TextSelection.collapsed(offset: name.length),
+    );
   }
 
   @override
@@ -240,6 +250,8 @@ class _MatchScreenState extends State<MatchScreen> {
 
     if (mySetTurn) {
       children = [
+        _PresetRow(onPick: _fillTrick),
+        const SizedBox(height: 12),
         TextField(
           controller: _trickController,
           textCapitalization: TextCapitalization.words,
@@ -555,6 +567,66 @@ class _TrickCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The preset chips, state 1 only. Horizontally scrollable so the list can
+/// grow without ever stealing height from the field or the SET button.
+class _PresetRow extends StatelessWidget {
+  final ValueChanged<String> onPick;
+
+  const _PresetRow({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: trickPresets.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final name = trickPresets[index];
+          return _TrickChip(name: name, onTap: () => onPick(name));
+        },
+      ),
+    );
+  }
+}
+
+class _TrickChip extends StatelessWidget {
+  final String name;
+  final VoidCallback onTap;
+
+  const _TrickChip({required this.name, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _surface,
+      borderRadius: BorderRadius.circular(19),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(19),
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(19),
+            border: Border.all(color: _line),
+          ),
+          child: Text(
+            name,
+            style: const TextStyle(
+              color: _text,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ),
     );
   }

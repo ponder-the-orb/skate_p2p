@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M3-T3.1 — Preset trick list
+- New `lib/ui/data/trick_presets.dart`: one `const List<String> trickPresets` of 23 common street tricks, ordered roughly easy → hard. It lives under `ui/` because it is picker content, not a rule — the engine, the codec and the relay are untouched by this ticket.
+- `MatchScreen` state 1 (I'm the setter, nothing declared) gains a horizontally scrollable chip row above the trick field. Tapping a chip **fills** the field and leaves it editable; SET remains the single path that declares a trick. Chips never appear in any other state.
+- Free-text entry is unchanged, including the empty name that reads as "Unnamed trick" (PROTOCOL.md §6).
+- Tests: `trick_presets_test.dart` pins the list as non-empty, blank-free, duplicate-free, and every name at most 254 UTF-8 bytes — the `nameLen` uint8 ceiling of `TRICK_SET`. `match_screen_test.dart` state 1 gains chip rendering, tap-fills-the-field-without-declaring, SET-after-a-tap declaring that exact name, and a filled preset still being editable; state 2 asserts the chips are gone.
+
 ### M3-T3.2 — Attempt countdown (advisory)
 - New `AttemptTimer` (`lib/ui/widgets/attempt_timer.dart`): a 60-second countdown (`attemptSeconds`) in the match screen's dark panel styling, shown to the player whose attempt it is. Self-contained `StatefulWidget` owning its `Timer` (`dart:async` only, no new dependencies) and cancelling it in `dispose()`.
 - **Advisory only.** At 0:00 the panel changes to "TIME — land it or bail" and *nothing else happens*: no auto-bail, no engine event, no packet. A timeout is a conclusion, and conclusions never go on the wire or into the engine (ADR-003). The enforced variant stays in the parking lot.
