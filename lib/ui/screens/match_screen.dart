@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/state/app_state.dart';
@@ -14,6 +16,16 @@ const Color _accent = Color(0xFFD8FF3E);
 const Color _danger = Color(0xFFFF5C5C);
 const Color _muted = Color(0xFF8B94A5);
 const Color _text = Color(0xFFF3F5F9);
+
+/// Reconnect grace, survivor side. The countdown is cosmetic: it runs off the
+/// `graceSeconds` the server announced (PROTOCOL.md §5) and decides nothing.
+/// PEER_LEFT remains the sole authority on a game actually ending, which is
+/// why zero reads as "any moment" rather than "over".
+String reconnectingLabel(int seconds) => 'Opponent reconnecting… ${seconds}s';
+const String reconnectingImminentLabel = 'Opponent reconnecting… any moment…';
+
+/// Reconnect grace, rejoiner side: waiting for the survivor's STATE_SYNC.
+const String restoringLabel = 'Restoring game…';
 
 /// The match screen.
 ///
@@ -67,6 +79,13 @@ class _MatchScreenState extends State<MatchScreen> {
       animation: widget.appState,
       builder: (context, child) {
         final app = widget.appState;
+
+        // The rejoiner has its seat back but no game yet: there is nothing
+        // truthful to draw until the survivor's STATE_SYNC lands.
+        if (app.awaitingSync) {
+          return const _RestoringScreen();
+        }
+
         final game = app.game;
         final myId = app.playerId;
         final peerId = app.peerId;
@@ -103,6 +122,14 @@ class _MatchScreenState extends State<MatchScreen> {
                       roomCode: app.roomCode,
                       onLeave: app.handleLeaveMatch,
                     ),
+                    if (app.peerDisconnected)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                        child: _ReconnectBanner(
+                          key: ValueKey('grace-${app.graceSeconds}'),
+                          seconds: app.graceSeconds,
+                        ),
+                      ),
                     _Scoreboard(
                       myLetters: myLetters,
                       peerLetters: peerLetters,
@@ -119,7 +146,13 @@ class _MatchScreenState extends State<MatchScreen> {
                         myAttempt: myAttempt,
                       ),
                     ),
-                    _buildActions(mySetTurn: mySetTurn, myAttempt: myAttempt),
+                    _buildActions(
+                      mySetTurn: mySetTurn,
+                      myAttempt: myAttempt,
+                      // Nothing this player does can reach an absent peer, so
+                      // the intents are shut until the room is whole again.
+                      disabled: app.peerDisconnected,
+                    ),
                   ],
                 ),
                 if (game.phase == GamePhase.gameOver)
@@ -198,45 +231,54 @@ class _MatchScreenState extends State<MatchScreen> {
         sub = '';
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            headline,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 30,
-              height: 1.1,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 3,
-              color: mine ? _accent : _text,
-            ),
-          ),
-          if (sub.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              sub,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, color: _muted),
-            ),
-          ],
-          if (game.trickDeclared) ...[
-            const SizedBox(height: 24),
-            _TrickCard(name: game.currentTrickName, hero: hero),
-          ],
-          // Advisory only, and only for the player who is up (states 2 and 4).
-          // The key restarts the clock on every new attempt.
-          if (myAttempt) ...[
-            const SizedBox(height: 20),
-            AttemptTimer(
-              key: ValueKey(
-                'attempt-${game.phase.name}-${game.currentTrickName}',
+    // Centred when it fits, scrollable when it doesn't: the reconnect banner
+    // can appear above any state, and a hero trick plus a countdown is already
+    // a tall stage on a short phone.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                headline,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 30,
+                  height: 1.1,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 3,
+                  color: mine ? _accent : _text,
+                ),
               ),
-            ),
-          ],
-        ],
+              if (sub.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  sub,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 15, color: _muted),
+                ),
+              ],
+              if (game.trickDeclared) ...[
+                const SizedBox(height: 24),
+                _TrickCard(name: game.currentTrickName, hero: hero),
+              ],
+              // Advisory only, and only for the player who is up (states 2 and 4).
+              // The key restarts the clock on every new attempt.
+              if (myAttempt) ...[
+                const SizedBox(height: 20),
+                AttemptTimer(
+                  key: ValueKey(
+                    'attempt-${game.phase.name}-${game.currentTrickName}',
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -245,7 +287,11 @@ class _MatchScreenState extends State<MatchScreen> {
   // Actions — at most one player ever has buttons here.
   // ---------------------------------------------------------------------------
 
-  Widget _buildActions({required bool mySetTurn, required bool myAttempt}) {
+  Widget _buildActions({
+    required bool mySetTurn,
+    required bool myAttempt,
+    required bool disabled,
+  }) {
     final List<Widget> children;
 
     if (mySetTurn) {
@@ -283,21 +329,27 @@ class _MatchScreenState extends State<MatchScreen> {
           onSubmitted: (_) => _submitTrick(),
         ),
         const SizedBox(height: 12),
-        _BigButton(label: 'SET', color: _accent, onPressed: _submitTrick),
+        _BigButton(
+          label: 'SET',
+          color: _accent,
+          onPressed: disabled ? null : _submitTrick,
+        ),
       ];
     } else if (myAttempt) {
       children = [
         _BigButton(
           label: 'LANDED',
           color: _accent,
-          onPressed: () => widget.appState.reportResult(true),
+          onPressed: disabled ? null : () => widget.appState.reportResult(true),
         ),
         const SizedBox(height: 12),
         _BigButton(
           label: 'BAILED',
           color: _danger,
           outlined: true,
-          onPressed: () => widget.appState.reportResult(false),
+          onPressed: disabled
+              ? null
+              : () => widget.appState.reportResult(false),
         ),
       ];
     } else {
@@ -636,7 +688,9 @@ class _BigButton extends StatelessWidget {
   final String label;
   final Color color;
   final bool outlined;
-  final VoidCallback onPressed;
+
+  /// Null disables the button — the reconnect-grace case.
+  final VoidCallback? onPressed;
 
   const _BigButton({
     required this.label,
@@ -678,6 +732,130 @@ class _BigButton extends StatelessWidget {
       ),
       onPressed: onPressed,
       child: Text(label, style: style),
+    );
+  }
+}
+
+/// The survivor's banner during reconnect grace. It counts down locally from
+/// the `graceSeconds` the server announced; the clock is decoration, so at zero
+/// it says "any moment" and waits for the server to have the last word.
+class _ReconnectBanner extends StatefulWidget {
+  final int seconds;
+
+  const _ReconnectBanner({super.key, required this.seconds});
+
+  @override
+  State<_ReconnectBanner> createState() => _ReconnectBannerState();
+}
+
+class _ReconnectBannerState extends State<_ReconnectBanner> {
+  Timer? _ticker;
+  int _remaining = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _restart();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReconnectBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.seconds != widget.seconds) {
+      setState(_restart);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  void _restart() {
+    _ticker?.cancel();
+    _ticker = null;
+    _remaining = widget.seconds < 0 ? 0 : widget.seconds;
+    if (_remaining == 0) return;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      setState(() {
+        _remaining--;
+        if (_remaining <= 0) {
+          _remaining = 0;
+          _ticker?.cancel();
+          _ticker = null;
+        }
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _danger),
+      ),
+      child: Text(
+        _remaining == 0
+            ? reconnectingImminentLabel
+            : reconnectingLabel(_remaining),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: _danger,
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+/// The rejoiner's screen between PEER_RECONNECTED and STATE_SYNC.
+class _RestoringScreen extends StatelessWidget {
+  const _RestoringScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  color: _accent,
+                  strokeWidth: 3,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                restoringLabel,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your opponent is sending the game back.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: _muted),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
