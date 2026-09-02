@@ -11,3 +11,7 @@ points to. Additions specific to this seat:
   before committing server work.
 - End every session with the five-line report from `docs/WORKFLOW.md §4`,
   including the GitHub compare/PR link.
+
+- In addition to printing it, write the five-line report to
+  `reports/<ticket-id>.md` and include it in the ticket's final
+  commit. Reports live in the repo; clipboards lose things.
