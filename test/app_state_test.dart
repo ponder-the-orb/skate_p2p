@@ -195,4 +195,265 @@ void main() {
       expect(table.joiner.playerId, isNull);
     });
   });
+
+  group('AppState reconnect grace — survivor side', () {
+    test('PEER_DISCONNECTED marks the wait and leaves the engine alone', () {
+      final table = _Table();
+      table.creator.setTrick('kickflip');
+      final before = table.joiner.game;
+
+      table.joiner.handlePeerDisconnected(7, 120);
+
+      expect(table.joiner.peerDisconnected, isTrue);
+      expect(table.joiner.graceSeconds, equals(120));
+      // Nothing about the game has changed — only PEER_LEFT abandons it.
+      expect(table.joiner.game, same(before));
+      expect(table.joiner.game.phase, equals(GamePhase.setting));
+      expect(table.joinerSent, isEmpty);
+    });
+
+    test('PEER_RECONNECTED clears the wait and sends exactly one 0x12', () {
+      final table = _midGame();
+      table.joiner.handlePeerDisconnected(7, 120);
+      table.joinerSent.clear();
+
+      table.joiner.handlePeerReconnected(7);
+
+      expect(table.joiner.peerDisconnected, isFalse);
+      expect(table.joiner.graceSeconds, equals(0));
+      expect(table.joinerSent, hasLength(1));
+      expect(table.joinerSent.single[1], equals(0x12));
+
+      final sync = PacketCodec.decode(table.joinerSent.single);
+      expect(sync, isA<StateSyncPacket>());
+      expect((sync as StateSyncPacket).senderId, equals(8));
+    });
+
+    test('a survivor still in the lobby has no snapshot to send', () {
+      final app = AppState();
+      final sent = <Uint8List>[];
+      app.setSendCallback(sent.add);
+      app.setConnectionStatus(true);
+      app.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+
+      app.handlePeerReconnected(8);
+
+      // No game in progress: this side is the rejoiner, not the survivor.
+      expect(sent, isEmpty);
+      expect(app.awaitingSync, isTrue);
+      expect(app.phase, equals(ClientPhase.inMatch));
+    });
+  });
+
+  group('AppState reconnect grace — the rejoiner resumes the same game', () {
+    test('a fresh AppState fed JOINED + 0x06 + 0x12 matches the survivor', () {
+      final table = _midGame();
+      final survivor = table.joiner; // player 8 stayed
+      table.joiner.handlePeerDisconnected(7, 120);
+      table.joinerSent.clear();
+      survivor.handlePeerReconnected(7);
+      final stateSync = table.joinerSent.single;
+
+      // Player 7 relaunches the app: a brand new AppState, no history at all.
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      rejoiner.setConnectionStatus(true);
+
+      // The server re-seats the original id and role in JOINED.
+      rejoiner.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      expect(rejoiner.game.phase, equals(GamePhase.lobby));
+
+      toRejoiner.dispatch(peerReconnectedFixture(8));
+      expect(rejoiner.awaitingSync, isTrue);
+      expect(rejoiner.peerId, equals(8));
+      expect(rejoiner.game.phase, equals(GamePhase.lobby)); // still nothing
+
+      toRejoiner.dispatch(stateSync);
+
+      expect(rejoiner.awaitingSync, isFalse);
+      expect(rejoiner.phase, equals(ClientPhase.inMatch));
+      expectSameGame(rejoiner.game, survivor.game);
+    });
+
+    test('the snapshot survives a game that is already over', () {
+      final table = _Table();
+      final creator = table.creator;
+      final joiner = table.joiner;
+
+      // Player 8 spells S.K.A.T.E. and player 7 alone votes for a rematch.
+      for (var letter = 1; letter <= 5; letter++) {
+        creator.setTrick('trick $letter');
+        creator.reportResult(true);
+        joiner.reportResult(false);
+      }
+      creator.voteRematch();
+      expect(creator.game.phase, equals(GamePhase.gameOver));
+
+      table.creatorSent.clear();
+      creator.handlePeerDisconnected(8, 120);
+      creator.handlePeerReconnected(8);
+
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      rejoiner.setConnectionStatus(true);
+      rejoiner.handleJoined(playerId: 8, roomCode: 41235, role: 2);
+      toRejoiner.dispatch(peerReconnectedFixture(7));
+      toRejoiner.dispatch(table.creatorSent.single);
+
+      expectSameGame(rejoiner.game, creator.game);
+      expect(rejoiner.game.phase, equals(GamePhase.gameOver));
+      expect(rejoiner.game.winnerId, equals(7));
+      expect(rejoiner.game.rematchVotes, equals({7}));
+      expect(rejoiner.game.letters, equals({7: 0, 8: 5}));
+    });
+
+    test('an undeclared trick stays undeclared across the sync', () {
+      final table = _Table(); // fresh game: setting, nothing declared
+      table.creatorSent.clear();
+      table.creator.handlePeerReconnected(8);
+
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      rejoiner.setConnectionStatus(true);
+      rejoiner.handleJoined(playerId: 8, roomCode: 41235, role: 2);
+      toRejoiner.dispatch(peerReconnectedFixture(7));
+      toRejoiner.dispatch(table.creatorSent.single);
+
+      expect(rejoiner.game.trickDeclared, isFalse);
+      expect(rejoiner.game.currentTrickName, isNull);
+      expectSameGame(rejoiner.game, table.creator.game);
+    });
+
+    test('a synced rejoiner can play on, and the survivor agrees', () {
+      final table = _midGame();
+      table.joinerSent.clear();
+      table.joiner.handlePeerReconnected(7);
+      final stateSync = table.joinerSent.single;
+
+      // Rebuild player 7 and wire it back to the survivor, relay-style.
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      final toSurvivor = PacketDispatcher(table.joiner);
+      rejoiner.setSendCallback(toSurvivor.dispatch);
+      rejoiner.setConnectionStatus(true);
+      rejoiner.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      toRejoiner.dispatch(peerReconnectedFixture(8));
+      toRejoiner.dispatch(stateSync);
+
+      // Player 7 is the defender mid-defence: it bails and takes a letter.
+      expect(rejoiner.game.phase, equals(GamePhase.defending));
+      rejoiner.reportResult(false);
+
+      expectSameGame(rejoiner.game, table.joiner.game);
+      expect(rejoiner.game.letters[7], equals(2));
+      expect(rejoiner.game.phase, equals(GamePhase.setting));
+    });
+  });
+
+  group('AppState accepts STATE_SYNC only while awaiting one', () {
+    test('a 0x12 arriving mid-match is dropped', () {
+      final table = _midGame();
+      table.joinerSent.clear();
+      table.joiner.handlePeerReconnected(7);
+      final stateSync = table.joinerSent.single;
+
+      // The survivor is not awaiting anything: its own snapshot must bounce.
+      final before = table.joiner.game;
+      PacketDispatcher(table.joiner).dispatch(stateSync);
+
+      expect(table.joiner.game, same(before));
+      expect(table.joiner.awaitingSync, isFalse);
+    });
+
+    test('a 0x12 arriving before PEER_RECONNECTED is dropped', () {
+      final table = _midGame();
+      table.joinerSent.clear();
+      table.joiner.handlePeerReconnected(7);
+
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      rejoiner.setConnectionStatus(true);
+      rejoiner.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+
+      toRejoiner.dispatch(table.joinerSent.single); // no 0x06 yet
+
+      expect(rejoiner.game.phase, equals(GamePhase.lobby));
+      expect(rejoiner.awaitingSync, isFalse);
+    });
+
+    test('a second 0x12 after the sync is dropped', () {
+      final table = _midGame();
+      table.joinerSent.clear();
+      table.joiner.handlePeerReconnected(7);
+      final stateSync = table.joinerSent.single;
+
+      final rejoiner = AppState();
+      final toRejoiner = PacketDispatcher(rejoiner);
+      rejoiner.setConnectionStatus(true);
+      rejoiner.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      toRejoiner.dispatch(peerReconnectedFixture(8));
+      toRejoiner.dispatch(stateSync);
+
+      final installed = rejoiner.game;
+      toRejoiner.dispatch(stateSync);
+
+      expect(rejoiner.game, same(installed));
+    });
+  });
+
+  group('AppState reconnect grace resets with the identity', () {
+    test('PEER_LEFT during grace clears the banner state', () {
+      final table = _midGame();
+      table.joiner.handlePeerDisconnected(7, 120);
+
+      table.joiner.handlePeerLeft(7);
+
+      expect(table.joiner.game.phase, equals(GamePhase.abandoned));
+      expect(table.joiner.peerDisconnected, isFalse);
+      expect(table.joiner.graceSeconds, equals(0));
+      expect(table.joiner.awaitingSync, isFalse);
+    });
+  });
+}
+
+/// PEER_RECONNECTED (0x06) as the server sends it.
+Uint8List peerReconnectedFixture(int peerId) {
+  final bytes = Uint8List(7);
+  final data = ByteData.sublistView(bytes);
+  data.setUint8(0, 0x01);
+  data.setUint8(1, 0x06);
+  data.setUint16(2, 0); // senderId = server
+  data.setUint8(4, 0x02);
+  data.setUint16(5, peerId);
+  return bytes;
+}
+
+/// A table played into a genuinely mid-game position: player 8 is the setter,
+/// has landed "kickflip", player 7 is defending and already carries a letter.
+_Table _midGame() {
+  final table = _Table();
+  table.creator.setTrick('hardflip');
+  table.creator.reportResult(false); // roles swap, no letter
+  table.joiner.setTrick('ollie');
+  table.joiner.reportResult(true);
+  table.creator.reportResult(false); // player 7 takes a letter
+  table.joiner.setTrick('kickflip');
+  table.joiner.reportResult(true); // player 7 is defending again
+  table.creatorSent.clear();
+  table.joinerSent.clear();
+  return table;
+}
+
+/// [GameState] has no `==` (it is engine-owned and this ticket changes zero
+/// lines of `lib/game/`), so agreement is asserted field by field.
+void expectSameGame(GameState actual, GameState expected) {
+  expect(actual.phase, equals(expected.phase));
+  expect(actual.setterId, equals(expected.setterId));
+  expect(actual.defenderId, equals(expected.defenderId));
+  expect(actual.firstSetterId, equals(expected.firstSetterId));
+  expect(actual.winnerId, equals(expected.winnerId));
+  expect(actual.letters, equals(expected.letters));
+  expect(actual.rematchVotes, equals(expected.rematchVotes));
+  expect(actual.trickDeclared, equals(expected.trickDeclared));
+  expect(actual.currentTrickName, equals(expected.currentTrickName));
 }

@@ -333,6 +333,174 @@ void main() {
       },
     );
   });
+
+  group('reconnect grace — the survivor waits', () {
+    testWidgets('banners the countdown announced by the server', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.handlePeerDisconnected(_peerId, 120);
+      await _pumpMatch(tester, app);
+
+      expect(find.text(reconnectingLabel(120)), findsOneWidget);
+      expect(find.text(reconnectingImminentLabel), findsNothing);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('the banner counts down locally, second by second', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.handlePeerDisconnected(_peerId, 3);
+      await _pumpMatch(tester, app);
+
+      expect(find.text(reconnectingLabel(3)), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(reconnectingLabel(2)), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(reconnectingLabel(1)), findsOneWidget);
+
+      // At zero the clock stops talking in numbers: PEER_LEFT is the only
+      // thing that can actually end the game, and it has not arrived.
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(reconnectingImminentLabel), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.text(reconnectingImminentLabel), findsOneWidget);
+      expect(app.game.phase, equals(GamePhase.setting)); // still not abandoned
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('SET is disabled while the peer is away', (tester) async {
+      final app = _seatThatSetsFirst();
+      app.handlePeerDisconnected(_peerId, 120);
+      await _pumpMatch(tester, app);
+
+      final setButton = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.text('SET'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(setButton.onPressed, isNull);
+
+      await tester.tap(find.text('SET'), warnIfMissed: false);
+      await tester.pump();
+      expect(app.game.trickDeclared, isFalse);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('LANDED and BAILED are disabled while the peer is away', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.setTrick('kickflip'); // state 2: my attempt
+      app.handlePeerDisconnected(_peerId, 120);
+      await _pumpMatch(tester, app);
+
+      final landed = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.text('LANDED'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      final bailed = tester.widget<OutlinedButton>(
+        find.ancestor(
+          of: find.text('BAILED'),
+          matching: find.byType(OutlinedButton),
+        ),
+      );
+      expect(landed.onPressed, isNull);
+      expect(bailed.onPressed, isNull);
+
+      await tester.tap(find.text('LANDED'), warnIfMissed: false);
+      await tester.pump();
+      expect(app.game.phase, equals(GamePhase.setting)); // no attempt landed
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('the banner and the buttons come back on reconnect', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.handlePeerDisconnected(_peerId, 120);
+      await _pumpMatch(tester, app);
+      expect(find.text(reconnectingLabel(120)), findsOneWidget);
+
+      app.handlePeerReconnected(_peerId);
+      await tester.pump();
+
+      expect(find.text(reconnectingLabel(120)), findsNothing);
+      expect(find.text(reconnectingImminentLabel), findsNothing);
+      final setButton = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.text('SET'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(setButton.onPressed, isNotNull);
+
+      await _leaveMatchScreen(tester);
+    });
+  });
+
+  group('reconnect grace — the rejoiner restores', () {
+    testWidgets('shows the restoring state while awaiting the snapshot', (
+      tester,
+    ) async {
+      final app = AppState();
+      app.setConnectionStatus(true);
+      app.handleJoined(playerId: _myId, roomCode: 41235, role: 1);
+      app.handlePeerReconnected(_peerId);
+      expect(app.awaitingSync, isTrue);
+
+      await _pumpMatch(tester, app);
+
+      expect(find.text(restoringLabel), findsOneWidget);
+      // Nothing about the game is drawn before it is known.
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('SET'), findsNothing);
+      expect(find.text('WAITING FOR OPPONENT'), findsNothing);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('the snapshot replaces it with the real game', (tester) async {
+      final app = AppState();
+      app.setConnectionStatus(true);
+      app.handleJoined(playerId: _myId, roomCode: 41235, role: 1);
+      app.handlePeerReconnected(_peerId);
+      await _pumpMatch(tester, app);
+
+      app.applyStateSync(
+        StateSyncPacket(
+          senderId: _peerId,
+          phase: 2, // defending
+          setterId: _peerId,
+          defenderId: _myId,
+          firstSetterId: _myId,
+          winnerId: null,
+          letters: const {_myId: 2, _peerId: 1},
+          rematchVotes: const {},
+          trickDeclared: true,
+          trickName: 'kickflip',
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text(restoringLabel), findsNothing);
+      expect(find.text('MATCH IT'), findsOneWidget);
+      expect(find.text('kickflip'), findsOneWidget);
+      expect(find.text('LANDED'), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
+    });
+  });
 }
 
 /// Tears the screen down so a running countdown can't outlive its test.

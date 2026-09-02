@@ -44,6 +44,27 @@ class PeerLeftPacket extends V1Packet {
     : super(opcode: 0x04);
 }
 
+/// Control opcode `0x05` — the peer's socket dropped, but the room is in
+/// reconnect grace for [graceSeconds]. The game is NOT abandoned.
+class PeerDisconnectedPacket extends V1Packet {
+  final int peerId;
+  final int graceSeconds;
+
+  PeerDisconnectedPacket({
+    required super.senderId,
+    required this.peerId,
+    required this.graceSeconds,
+  }) : super(opcode: 0x05);
+}
+
+/// Control opcode `0x06` — the graced room is whole again. Sent to BOTH.
+class PeerReconnectedPacket extends V1Packet {
+  final int peerId;
+
+  PeerReconnectedPacket({required super.senderId, required this.peerId})
+    : super(opcode: 0x06);
+}
+
 class ErrorPacket extends V1Packet {
   final int errorCode;
 
@@ -68,6 +89,38 @@ class AttemptResultPacket extends V1Packet {
     : super(opcode: 0x11);
 }
 
+/// Game opcode `0x12` — the full game-state snapshot the survivor sends to a
+/// rejoining peer (PROTOCOL.md §6). Carries facts only: the receiver rebuilds
+/// its engine snapshot from these, it does not replay events.
+///
+/// [winnerId] is null when nobody has won (the wire's `0` — playerIds are
+/// never 0). [trickName] is null when no trick is declared; an empty string is
+/// the legal "unnamed trick".
+class StateSyncPacket extends V1Packet {
+  final int phase; // 1 setting · 2 defending · 3 gameOver
+  final int setterId;
+  final int defenderId;
+  final int firstSetterId;
+  final int? winnerId;
+  final Map<int, int> letters;
+  final Set<int> rematchVotes;
+  final bool trickDeclared;
+  final String? trickName;
+
+  StateSyncPacket({
+    required super.senderId,
+    required this.phase,
+    required this.setterId,
+    required this.defenderId,
+    required this.firstSetterId,
+    required this.winnerId,
+    required this.letters,
+    required this.rematchVotes,
+    required this.trickDeclared,
+    required this.trickName,
+  }) : super(opcode: 0x12);
+}
+
 /// Game opcode `0x13` — a vote for a rematch. Payload is empty.
 class RematchPacket extends V1Packet {
   RematchPacket({required super.senderId}) : super(opcode: 0x13);
@@ -81,6 +134,14 @@ class PacketCodec {
   /// by PROTOCOL.md §6.
   static const int maxTrickNameBytes = 254;
 
+  /// `STATE_SYNC` carries 17 fixed bytes before its `nameLen`, so its name
+  /// ceiling is lower than `TRICK_SET`'s (PROTOCOL.md §6).
+  static const int maxSyncTrickNameBytes = 234;
+
+  /// Fixed part of a `STATE_SYNC` payload: everything up to and including
+  /// `nameLen`.
+  static const int _stateSyncFixedLen = 17;
+
   /// Expected payload lengths for opcodes whose payload is a fixed size.
   /// `TRICK_SET` (0x10) is variable-length and validated separately.
   static const Map<int, int> _expectedPayloadLengths = {
@@ -88,6 +149,8 @@ class PacketCodec {
     0x02: 7, // JOINED
     0x03: 2, // PEER_JOINED
     0x04: 2, // PEER_LEFT
+    0x05: 4, // PEER_DISCONNECTED
+    0x06: 2, // PEER_RECONNECTED
     0x0F: 1, // ERROR
     0x11: 1, // ATTEMPT_RESULT
     0x13: 0, // REMATCH
@@ -141,6 +204,60 @@ class PacketCodec {
     data.setUint16(2, senderId); // senderId
     data.setUint8(4, 1); // payloadLen
     data.setUint8(5, landed ? 0x01 : 0x00); // result
+
+    return bytes;
+  }
+
+  /// Encodes a STATE_SYNC packet — the whole game in 17 bytes plus a name.
+  ///
+  /// [letters] must hold exactly the two players; the pair is written
+  /// lower-id-first so the same game always produces the same bytes. Pass
+  /// `winnerId: 0` (or null) for "nobody has won yet", and a null [trickName]
+  /// when no trick is declared.
+  static Uint8List encodeStateSync({
+    required int senderId,
+    required int phase,
+    required int setterId,
+    required int defenderId,
+    required int firstSetterId,
+    required int? winnerId,
+    required Map<int, int> letters,
+    required Set<int> rematchVotes,
+    required bool trickDeclared,
+    required String? trickName,
+  }) {
+    final ids = letters.keys.toList()..sort();
+    final playerA = ids.isNotEmpty ? ids.first : 0;
+    final playerB = ids.length > 1 ? ids.last : 0;
+
+    final nameBytes = trickDeclared
+        ? _truncateUtf8(utf8.encode(trickName ?? ''), maxSyncTrickNameBytes)
+        : Uint8List(0);
+
+    var flags = 0;
+    if (trickDeclared) flags |= 0x01;
+    if (rematchVotes.contains(playerA)) flags |= 0x02;
+    if (rematchVotes.contains(playerB)) flags |= 0x04;
+
+    final bytes = Uint8List(headerSize + _stateSyncFixedLen + nameBytes.length);
+    final data = ByteData.sublistView(bytes);
+
+    data.setUint8(0, 0x01); // version
+    data.setUint8(1, 0x12); // opcode
+    data.setUint16(2, senderId); // senderId
+    data.setUint8(4, _stateSyncFixedLen + nameBytes.length); // payloadLen
+    data.setUint8(5, phase);
+    data.setUint16(6, setterId);
+    data.setUint16(8, defenderId);
+    data.setUint16(10, firstSetterId);
+    data.setUint16(12, winnerId ?? 0);
+    data.setUint16(14, playerA);
+    data.setUint8(16, letters[playerA] ?? 0);
+    data.setUint16(17, playerB);
+    data.setUint8(19, letters[playerB] ?? 0);
+    data.setUint8(20, flags);
+    data.setUint8(21, nameBytes.length);
+    bytes.setRange(22, 22 + nameBytes.length, nameBytes);
 
     return bytes;
   }
@@ -212,6 +329,93 @@ class PacketCodec {
       }
     }
 
+    // STATE_SYNC is the other variable-length payload: 17 fixed bytes, the
+    // last of which is `nameLen`, then the name. Every field is range-checked
+    // before it reaches the engine — a malformed snapshot is dropped, never
+    // installed (PROTOCOL.md §3, §6).
+    if (opcode == 0x12) {
+      if (payloadLen < _stateSyncFixedLen) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: payload $payloadLen B < $_stateSyncFixedLen B',
+        );
+        return null;
+      }
+      final nameLen = data.getUint8(21);
+      if (nameLen != payloadLen - _stateSyncFixedLen) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: nameLen $nameLen does not match payload len $payloadLen',
+        );
+        return null;
+      }
+      if (nameLen > maxSyncTrickNameBytes) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: nameLen $nameLen exceeds $maxSyncTrickNameBytes',
+        );
+        return null;
+      }
+
+      final phase = data.getUint8(5);
+      if (phase < 1 || phase > 3) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: phase $phase is not 1, 2 or 3',
+        );
+        return null;
+      }
+
+      final playerA = data.getUint16(14);
+      final lettersA = data.getUint8(16);
+      final playerB = data.getUint16(17);
+      final lettersB = data.getUint8(19);
+      if (lettersA > 5 || lettersB > 5) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: letters out of range ($lettersA, $lettersB)',
+        );
+        return null;
+      }
+
+      final flags = data.getUint8(20);
+      final trickDeclared = (flags & 0x01) != 0;
+      if (!trickDeclared && nameLen > 0) {
+        debugPrint(
+          '[-] Dropping v1 packet: malformed opcode 0x12: a name without the trickDeclared flag',
+        );
+        return null;
+      }
+
+      final String? trickName;
+      if (trickDeclared) {
+        try {
+          trickName = utf8.decode(bytes.sublist(22, 22 + nameLen));
+        } catch (e) {
+          debugPrint(
+            '[-] Dropping v1 packet: STATE_SYNC name is not valid UTF-8',
+          );
+          return null;
+        }
+      } else {
+        trickName = null;
+      }
+
+      final winnerId = data.getUint16(12);
+      final votes = <int>{
+        if ((flags & 0x02) != 0) playerA,
+        if ((flags & 0x04) != 0) playerB,
+      };
+
+      return StateSyncPacket(
+        senderId: senderId,
+        phase: phase,
+        setterId: data.getUint16(6),
+        defenderId: data.getUint16(8),
+        firstSetterId: data.getUint16(10),
+        winnerId: winnerId == 0 ? null : winnerId,
+        letters: {playerA: lettersA, playerB: lettersB},
+        rematchVotes: votes,
+        trickDeclared: trickDeclared,
+        trickName: trickName,
+      );
+    }
+
     final expectedPayloadLen = _expectedPayloadLengths[opcode];
     if (expectedPayloadLen == null) {
       debugPrint('[-] Dropping v1 packet: unknown opcode ${_hex(opcode)}');
@@ -247,6 +451,17 @@ class PacketCodec {
         case 0x04:
           final peerId = data.getUint16(5);
           return PeerLeftPacket(senderId: senderId, peerId: peerId);
+        case 0x05:
+          final peerId = data.getUint16(5);
+          final graceSeconds = data.getUint16(7);
+          return PeerDisconnectedPacket(
+            senderId: senderId,
+            peerId: peerId,
+            graceSeconds: graceSeconds,
+          );
+        case 0x06:
+          final peerId = data.getUint16(5);
+          return PeerReconnectedPacket(senderId: senderId, peerId: peerId);
         case 0x0F:
           final errorCode = data.getUint8(5);
           return ErrorPacket(senderId: senderId, errorCode: errorCode);
