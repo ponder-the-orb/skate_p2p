@@ -71,10 +71,17 @@ its JOINED. Each side thereby learns the other's playerId. Game may begin.
 | `0x03` | malformed packet |
 | `0x04` | not in a room (game opcode before JOINED) |
 
-### `0x05 PEER_DISCONNECTED` (server → client) — payload 2 bytes
-`peerId` uint16. Your peer's socket dropped, but the room is in
-**reconnect grace**: it lingers for 60 seconds awaiting their return.
-The game is NOT abandoned. UI should show a reconnecting state.
+### `0x05 PEER_DISCONNECTED` (server → client) — payload 4 bytes
+| Offset | Size | Field |
+|---|---|---|
+| 5 | 2 | `peerId` uint16 |
+| 7 | 2 | `graceSeconds` uint16 — how long the room will wait |
+
+Your peer's socket dropped, but the room is in **reconnect grace**: it
+lingers for `graceSeconds` awaiting their return. The game is NOT
+abandoned. UI shows a reconnecting state and may count down from
+`graceSeconds`. The duration is a server-side constant (v1: 120),
+announced on the wire so clients never hardcode it.
 
 ### `0x06 PEER_RECONNECTED` (server → client) — payload 2 bytes
 `peerId` uint16. Sent to BOTH clients when a graced room becomes whole
