@@ -71,6 +71,28 @@ its JOINED. Each side thereby learns the other's playerId. Game may begin.
 | `0x03` | malformed packet |
 | `0x04` | not in a room (game opcode before JOINED) |
 
+### `0x05 PEER_DISCONNECTED` (server → client) — payload 2 bytes
+`peerId` uint16. Your peer's socket dropped, but the room is in
+**reconnect grace**: it lingers for 60 seconds awaiting their return.
+The game is NOT abandoned. UI should show a reconnecting state.
+
+### `0x06 PEER_RECONNECTED` (server → client) — payload 2 bytes
+`peerId` uint16. Sent to BOTH clients when a graced room becomes whole
+again. The client with a game in progress (the survivor) responds by
+sending `STATE_SYNC 0x12`. The freshly joined client sets its peerId,
+enters an awaiting-sync state, and waits for that packet.
+
+### Reconnect grace (server rules)
+- A room whose socket closes while a peer remains enters grace for 60 s;
+  the vacant slot remembers its playerId and role.
+- A JOIN carrying that room's code during grace re-seats the vacant
+  slot with the ORIGINAL playerId and role; JOINED is sent as normal,
+  then PEER_RECONNECTED to both. PEER_JOINED is never re-sent — it
+  strictly means a NEW game's room became full.
+- Grace expiry → PEER_LEFT to the survivor (engine → abandoned) and
+  the room is deleted. A room whose LAST connected socket closes is
+  deleted immediately — grace exists only while one peer remains.
+
 ## 6. Game opcodes
 
 Context (whose result this is, what trick is active) is derived from the GameEngine phase — see ARCHITECTURE.md §5. That's why these payloads are so small.
@@ -86,8 +108,28 @@ Sent when the setter declares the trick they're about to attempt.
 ### `0x11 ATTEMPT_RESULT` (attempting player → other player) — payload 1 byte
 `0x00` = bailed, `0x01` = landed. In phase `setting` this is the setter's result; in phase `defending`, the defender's. Any other value → drop + log.
 
-### `0x12` — reserved (`SCORE_SYNC`)
-Reserved for a future explicit resync. Not implemented in v1; the deterministic engine makes it unnecessary. Do not use.
+### `0x12 STATE_SYNC` (survivor → rejoiner) — payload 17 + N bytes
+Full game-state snapshot, sent once upon receiving PEER_RECONNECTED
+by the client whose game is in progress. Forwarded like any game
+opcode. A client accepts 0x12 ONLY while awaiting sync; otherwise
+drop + log.
+
+| Offset | Size | Field |
+|---|---|---|
+| 5  | 1 | `phase` — 1 setting · 2 defending · 3 gameOver |
+| 6  | 2 | `setterId` uint16 |
+| 8  | 2 | `defenderId` uint16 |
+| 10 | 2 | `firstSetterId` uint16 |
+| 12 | 2 | `winnerId` uint16 — `0` = none (playerIds are never 0) |
+| 14 | 2 | `playerA` uint16 |
+| 16 | 1 | `lettersA` 0–5 |
+| 17 | 2 | `playerB` uint16 |
+| 19 | 1 | `lettersB` 0–5 |
+| 20 | 1 | `flags` — bit0 trickDeclared · bit1 A voted rematch · bit2 B voted |
+| 21 | 1 | `nameLen` uint8 (0–234) |
+| 22 | N | UTF-8 trick name |
+
+Validation per §3; any out-of-range enum or letter count → drop + log.
 
 ### `0x13 REMATCH` (client → client) — payload 0 bytes
 Vote for a rematch. The game resets only when the engine has seen a REMATCH from **both** players.
