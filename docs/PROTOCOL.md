@@ -90,7 +90,7 @@ sending `STATE_SYNC 0x12`. The freshly joined client sets its peerId,
 enters an awaiting-sync state, and waits for that packet.
 
 ### Reconnect grace (server rules)
-- A room whose socket closes while a peer remains enters grace for 60 s;
+- A room whose socket closes while a peer remains enters grace for a server-configured window (v1: 120 s), announced via 0x05;
   the vacant slot remembers its playerId and role.
 - A JOIN carrying that room's code during grace re-seats the vacant
   slot with the ORIGINAL playerId and role; JOINED is sent as normal,
