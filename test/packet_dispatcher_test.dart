@@ -56,6 +56,74 @@ void main() {
     dispatcher = PacketDispatcher(state);
   });
 
+  group('PacketDispatcher routes the reconnect-grace opcodes', () {
+    test('PEER_DISCONNECTED (0x05) raises the grace state, not the engine', () {
+      state.setConnectionStatus(true);
+      dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
+      dispatcher.dispatch(peerJoinedFixture(8));
+
+      dispatcher.dispatch(
+        Uint8List.fromList([
+          0x01,
+          0x05,
+          0x00,
+          0x00,
+          0x04,
+          0x00,
+          0x08,
+          0x00,
+          0x78,
+        ]),
+      );
+
+      expect(state.peerDisconnected, isTrue);
+      expect(state.graceSeconds, equals(120));
+      expect(state.game.phase, equals(GamePhase.setting)); // NOT abandoned
+    });
+
+    test('PEER_RECONNECTED (0x06) into a fresh seat starts awaiting sync', () {
+      state.setConnectionStatus(true);
+      dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
+
+      dispatcher.dispatch(
+        Uint8List.fromList([0x01, 0x06, 0x00, 0x00, 0x02, 0x00, 0x08]),
+      );
+
+      expect(state.awaitingSync, isTrue);
+      expect(state.peerId, equals(8));
+      expect(state.phase, equals(ClientPhase.inMatch));
+    });
+
+    test('STATE_SYNC (0x12) reaches the sync path, not applyRemoteEvent', () {
+      state.setConnectionStatus(true);
+      dispatcher.dispatch(joinedFixture(playerId: 7, role: 1));
+      dispatcher.dispatch(
+        Uint8List.fromList([0x01, 0x06, 0x00, 0x00, 0x02, 0x00, 0x08]),
+      );
+
+      dispatcher.dispatch(
+        PacketCodec.encodeStateSync(
+          senderId: 8,
+          phase: 2,
+          setterId: 8,
+          defenderId: 7,
+          firstSetterId: 7,
+          winnerId: null,
+          letters: const {7: 3, 8: 1},
+          rematchVotes: const {},
+          trickDeclared: true,
+          trickName: 'kickflip',
+        ),
+      );
+
+      expect(state.awaitingSync, isFalse);
+      expect(state.game.phase, equals(GamePhase.defending));
+      expect(state.game.setterId, equals(8));
+      expect(state.game.letters, equals({7: 3, 8: 1}));
+      expect(state.game.currentTrickName, equals('kickflip'));
+    });
+  });
+
   group('PacketDispatcher applies valid v1 control packets', () {
     test(
       'JOINED (role 1) updates app state and transitions to waitingForPeer',
@@ -266,7 +334,7 @@ void main() {
       expectDroppedSilently([0x01, 0x7F, 0x00, 0x01, 0x01, 0x00]);
     });
 
-    test('reserved SCORE_SYNC (0x12) is dropped', () {
+    test('STATE_SYNC (0x12) with a truncated payload is dropped', () {
       expectDroppedSilently([0x01, 0x12, 0x00, 0x07, 0x00]);
     });
 

@@ -17,6 +17,16 @@ class AppState extends ChangeNotifier {
 
   bool _isConnected = false;
 
+  /// Reconnect grace (PROTOCOL.md §5). The survivor's view: the peer's socket
+  /// dropped but the room is being held. Cosmetic — PEER_LEFT stays the sole
+  /// authority on a game actually ending, and the engine is untouched here.
+  bool _peerDisconnected = false;
+  int _graceSeconds = 0;
+
+  /// The rejoiner's view: JOINED restored the old seat and 0x06 has arrived,
+  /// so a STATE_SYNC is owed. It is the ONLY window in which 0x12 is accepted.
+  bool _awaitingSync = false;
+
   /// The engine snapshot. Both clients feed their engines the same events in
   /// the same order, so both snapshots agree (ADR-003).
   GameState _game = const GameState.initial();
@@ -35,6 +45,9 @@ class AppState extends ChangeNotifier {
 
   bool get isConnected => _isConnected;
   GameState get game => _game;
+  bool get peerDisconnected => _peerDisconnected;
+  int get graceSeconds => _graceSeconds;
+  bool get awaitingSync => _awaitingSync;
 
   void setReconnectCallback(void Function() callback) {
     _reconnectCallback = callback;
@@ -114,6 +127,9 @@ class AppState extends ChangeNotifier {
       case JoinedPacket():
       case PeerJoinedPacket():
       case PeerLeftPacket():
+      case PeerDisconnectedPacket():
+      case PeerReconnectedPacket():
+      case StateSyncPacket():
       case ErrorPacket():
         debugPrint('[-] Dropping non-game packet passed to applyRemoteEvent');
         return;
@@ -184,6 +200,107 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// `0x05` — the peer dropped and the room is in grace for [graceSeconds].
+  /// The engine is deliberately NOT told: nothing about the game has changed
+  /// yet, and only PEER_LEFT abandons it.
+  void handlePeerDisconnected(int peerId, int graceSeconds) {
+    _peerDisconnected = true;
+    _graceSeconds = graceSeconds;
+    notifyListeners();
+  }
+
+  /// `0x06` — the room is whole again. Whoever has a game in progress is the
+  /// survivor and owes the returning player one STATE_SYNC; the other side is
+  /// the rejoiner and waits for it.
+  void handlePeerReconnected(int peerId) {
+    _peerDisconnected = false;
+    _graceSeconds = 0;
+    _peerId = peerId;
+
+    const inProgress = {
+      GamePhase.setting,
+      GamePhase.defending,
+      GamePhase.gameOver,
+    };
+
+    if (inProgress.contains(_game.phase)) {
+      _sendStateSync();
+    } else {
+      _awaitingSync = true;
+      _phase = ClientPhase.inMatch;
+    }
+    notifyListeners();
+  }
+
+  /// Installs a peer's snapshot, rebuilding the engine state from facts.
+  /// Accepted ONLY while awaiting sync (PROTOCOL.md §6) — a 0x12 at any other
+  /// moment is dropped and logged, never applied.
+  void applyStateSync(StateSyncPacket packet) {
+    if (!_awaitingSync) {
+      debugPrint('[-] Dropping STATE_SYNC: not awaiting a sync');
+      return;
+    }
+
+    _game = GameState(
+      phase: _enginePhase(packet.phase),
+      setterId: packet.setterId,
+      defenderId: packet.defenderId,
+      letters: Map.unmodifiable(packet.letters),
+      currentTrickName: packet.trickName,
+      rematchVotes: Set.unmodifiable(packet.rematchVotes),
+      firstSetterId: packet.firstSetterId,
+      winnerId: packet.winnerId,
+      trickDeclared: packet.trickDeclared,
+    );
+
+    _awaitingSync = false;
+    _peerDisconnected = false;
+    _phase = ClientPhase.inMatch;
+    notifyListeners();
+  }
+
+  /// The survivor's half of the handshake: the whole game, once.
+  void _sendStateSync() {
+    final myId = _playerId;
+    final game = _game;
+    if (myId == null ||
+        game.setterId == null ||
+        game.defenderId == null ||
+        game.firstSetterId == null) {
+      debugPrint('[-] Not sending STATE_SYNC: game is not seeded');
+      return;
+    }
+
+    _send(
+      PacketCodec.encodeStateSync(
+        senderId: myId,
+        phase: _wirePhase(game.phase),
+        setterId: game.setterId!,
+        defenderId: game.defenderId!,
+        firstSetterId: game.firstSetterId!,
+        winnerId: game.winnerId,
+        letters: game.letters,
+        rematchVotes: game.rematchVotes,
+        trickDeclared: game.trickDeclared,
+        trickName: game.currentTrickName,
+      ),
+    );
+  }
+
+  /// PROTOCOL.md §6: 1 setting · 2 defending · 3 gameOver. Only reachable for
+  /// the three in-progress phases, which is all STATE_SYNC can carry.
+  static int _wirePhase(GamePhase phase) => switch (phase) {
+    GamePhase.defending => 2,
+    GamePhase.gameOver => 3,
+    _ => 1,
+  };
+
+  static GamePhase _enginePhase(int wire) => switch (wire) {
+    2 => GamePhase.defending,
+    3 => GamePhase.gameOver,
+    _ => GamePhase.setting,
+  };
+
   void handlePeerLeft(int peerId) {
     _game = _game.apply(PeerLeft(peerId));
     _notice = "Peer left. Room cleared.";
@@ -224,6 +341,9 @@ class AppState extends ChangeNotifier {
     _roomCode = null;
     _role = null;
     _errorNotice = null;
+    _peerDisconnected = false;
+    _graceSeconds = 0;
+    _awaitingSync = false;
   }
 
   void clearNotice() {

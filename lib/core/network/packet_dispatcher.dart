@@ -54,6 +54,17 @@ class PacketDispatcher {
       case PeerLeftPacket():
         debugPrint('[<<] RECV PEER_LEFT (0x04) | Peer: ${packet.peerId}');
         appState.handlePeerLeft(packet.peerId);
+      case PeerDisconnectedPacket():
+        debugPrint(
+          '[<<] RECV PEER_DISCONNECTED (0x05) | '
+          'Peer: ${packet.peerId} | Grace: ${packet.graceSeconds}s',
+        );
+        appState.handlePeerDisconnected(packet.peerId, packet.graceSeconds);
+      case PeerReconnectedPacket():
+        debugPrint(
+          '[<<] RECV PEER_RECONNECTED (0x06) | Peer: ${packet.peerId}',
+        );
+        appState.handlePeerReconnected(packet.peerId);
       case ErrorPacket():
         debugPrint('[<<] RECV ERROR (0x0F) | Code: ${packet.errorCode}');
         appState.handleRoomError(packet.errorCode);
@@ -66,6 +77,12 @@ class PacketDispatcher {
           '${packet.landed ? "landed" : "bailed"}',
         );
         appState.applyRemoteEvent(packet);
+      case StateSyncPacket():
+        debugPrint(
+          '[<<] RECV STATE_SYNC (0x12) | '
+          'phase ${packet.phase} | letters ${packet.letters}',
+        );
+        appState.applyStateSync(packet);
       case RematchPacket():
         debugPrint('[<<] RECV REMATCH (0x13)');
         appState.applyRemoteEvent(packet);
