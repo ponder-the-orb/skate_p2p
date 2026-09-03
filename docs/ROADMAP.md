@@ -56,3 +56,15 @@ Goal: the real game, deterministically synced.
 ---
 
 **Parking lot** (ideas we deliberately said "not yet" to): WebRTC true P2P (ADR-005) · accounts · match history · spectator mode · "last try" rule variant (engine flag exists, UI later).
+
+**Parking lot additions (2026-09-02, Producer + Architect session):**
+· Async "challenge mode" — public many-player S.K.A.T.E. seeded by shared
+  clips (Twitter/social); letters tracked per challenge
+· Ranked — live-witnessed attempts over WebRTC media (recorded clips
+  cannot prove one-attempt; only a live window can). Attempt timer
+  becomes the enforced rule in ranked only
+· Spots/"gaps" map — Pokémon-Go-style discovery of real skate spots,
+  lore-famous gaps as landmarks; shops; meetups
+· Matchmaking + verified-pro flair (banners)
+· Clip delivery in-app via WebRTC data channels (ADR-005)
+· Hardware someday: tracking tripod for solo filming

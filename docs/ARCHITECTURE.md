@@ -143,8 +143,21 @@ Real P2P over the internet requires NAT traversal (STUN/TURN) and a signaling ph
 **ADR-006 — GameEngine is pure Dart, no Flutter imports.** *(Accepted)*
 Rules become cheap to test and impossible to tangle with rendering. CI can run the full rulebook on every push in seconds.
 
-**ADR-007 — `camera` dependency removed until M3.** *(Accepted)*
+**ADR-007 — `camera` dependency removed until M3.** *(Superceded by ADR-008)*
 It's in `pubspec.yaml` but unused. Unused native plugins bloat builds and add platform-permission noise. Re-add it the day we build the clips feature.
+
+**ADR-008 — Clips are local: record + system share sheet; no in-app delivery in v1.** *(Accepted 2026-09-02; supersedes ADR-007)*
+The wire (255-byte payloads, dumb relay) cannot carry video, and upload
+infrastructure costs money and moderation surface. Clips therefore
+record and replay locally, and reach the peer through the OS share
+sheet — which doubles as the growth loop: every shared clip advertises
+the game. In-app delivery is deferred to ADR-005 (WebRTC data channels
+move files peer-to-peer with no server bandwidth). Recording is
+manual-start only (privacy), has ZERO effect on game state (honor
+system, §5), and a recorded clip is explicitly NOT proof of one
+attempt — ranked play, if ever built, requires live-witnessed attempts.
+Dependencies `camera`, `video_player`, `share_plus` re-enter pubspec
+per this ADR; Producer approved all three, 2026-09-02.
 
 ## 8. Known issues in the current code (audit, validated 2026-08-25)
 
