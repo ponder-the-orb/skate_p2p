@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/state/app_state.dart';
 import '../../game/game_engine.dart';
+import '../clip_environment.dart';
 import '../data/trick_presets.dart';
 import '../widgets/attempt_timer.dart';
+import 'record_screen.dart';
 
 // Match palette. Dark, high contrast, one acid accent for "your move" and one
 // red for "you ate it". Deliberately local to this screen.
@@ -26,6 +28,10 @@ const String reconnectingImminentLabel = 'Opponent reconnecting… any moment…
 
 /// Reconnect grace, rejoiner side: waiting for the survivor's STATE_SYNC.
 const String restoringLabel = 'Restoring game…';
+
+/// The entry into the clips flow. Offered only to the player who is actually
+/// attempting something (states 2 and 4), and only where a camera exists.
+const String recordEntryLabel = 'FILM IT';
 
 /// The match screen.
 ///
@@ -53,10 +59,35 @@ class MatchScreen extends StatefulWidget {
 class _MatchScreenState extends State<MatchScreen> {
   final TextEditingController _trickController = TextEditingController();
 
+  /// Whether this device can film at all. Starts false and only ever becomes
+  /// true, so a device without a camera — the Producer's Linux desktop, a test
+  /// VM — simply never renders the entry. Nothing here can throw.
+  bool _cameraAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    CameraAvailability.isAvailable.then((available) {
+      if (!mounted || !available) return;
+      setState(() => _cameraAvailable = true);
+    });
+  }
+
   @override
   void dispose() {
     _trickController.dispose();
     super.dispose();
+  }
+
+  /// Opens the clips flow. Local only: it reports nothing, sends nothing, and
+  /// the match root stays authoritative for anything the network decides while
+  /// the player is in there (ADR-008).
+  void _openRecorder(String? trickName) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => RecordScreen(trickName: trickName),
+      ),
+    );
   }
 
   void _submitTrick() {
@@ -149,6 +180,7 @@ class _MatchScreenState extends State<MatchScreen> {
                     _buildActions(
                       mySetTurn: mySetTurn,
                       myAttempt: myAttempt,
+                      trickName: game.currentTrickName,
                       // Nothing this player does can reach an absent peer, so
                       // the intents are shut until the room is whole again.
                       disabled: app.peerDisconnected,
@@ -290,6 +322,7 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget _buildActions({
     required bool mySetTurn,
     required bool myAttempt,
+    required String? trickName,
     required bool disabled,
   }) {
     final List<Widget> children;
@@ -351,6 +384,13 @@ class _MatchScreenState extends State<MatchScreen> {
               ? null
               : () => widget.appState.reportResult(false),
         ),
+        // Filming is local and has zero game-state effects, so it stays live
+        // even while the peer is away in reconnect grace — `disabled` is
+        // deliberately not consulted here.
+        if (_cameraAvailable) ...[
+          const SizedBox(height: 12),
+          _RecordEntry(onPressed: () => _openRecorder(trickName)),
+        ],
       ];
     } else {
       children = [
@@ -732,6 +772,35 @@ class _BigButton extends StatelessWidget {
       ),
       onPressed: onPressed,
       child: Text(label, style: style),
+    );
+  }
+}
+
+/// The Record entry: a quiet third control under LANDED / BAILED, never
+/// competing with them for the eye. Absent entirely where there is no camera.
+class _RecordEntry extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _RecordEntry({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        minimumSize: const Size.fromHeight(44),
+        foregroundColor: _muted,
+      ),
+      icon: const Icon(Icons.videocam, size: 20, color: _muted),
+      label: const Text(
+        recordEntryLabel,
+        style: TextStyle(
+          color: _muted,
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 2,
+        ),
+      ),
     );
   }
 }

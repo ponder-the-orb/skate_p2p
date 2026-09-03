@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
 import 'package:skate_p2p/game/game_engine.dart';
+import 'package:skate_p2p/ui/clip_environment.dart';
 import 'package:skate_p2p/ui/data/trick_presets.dart';
 import 'package:skate_p2p/ui/screens/match_screen.dart';
 import 'package:skate_p2p/ui/widgets/attempt_timer.dart';
@@ -45,6 +46,9 @@ Future<void> _pumpMatch(WidgetTester tester, AppState app) async {
 }
 
 void main() {
+  // Needed by the one plain `test` below that makes a real channel call.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('state 1 — setting, I am the setter, nothing declared', () {
     testWidgets('offers the trick field and SET, and nothing else', (
       tester,
@@ -497,6 +501,160 @@ void main() {
       expect(find.text('MATCH IT'), findsOneWidget);
       expect(find.text('kickflip'), findsOneWidget);
       expect(find.text('LANDED'), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
+    });
+  });
+
+  // The camera cannot exist in a test VM, so availability is injected rather
+  // than mocked: the plugin's own internals stay untested here on purpose
+  // (they belong to the Producer's manual pass, ticket M3-T3.4).
+  group('the Record entry — a camera is available', () {
+    setUp(() => CameraAvailability.debugSetProbe(() async => true));
+    tearDown(() => CameraAvailability.debugSetProbe(null));
+
+    testWidgets('is offered in state 2, my own attempt', (tester) async {
+      final app = _seatThatSetsFirst();
+      app.setTrick('kickflip');
+      await _pumpMatch(tester, app);
+      await tester.pump(); // the probe answers
+
+      expect(find.text(recordEntryLabel), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('is offered in state 4, defending', (tester) async {
+      final app = _seatThatDefendsFirst();
+      _peerSetsTrick(app, 'tre flip');
+      _peerReports(app, landed: true);
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(app.game.phase, GamePhase.defending);
+      expect(find.text(recordEntryLabel), findsOneWidget);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('is absent in state 1 — nothing is being attempted yet', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(find.text('SET'), findsOneWidget);
+      expect(find.text(recordEntryLabel), findsNothing);
+    });
+
+    testWidgets('is absent in state 3 — the peer is up, not me', (
+      tester,
+    ) async {
+      final app = _seatThatDefendsFirst();
+      _peerSetsTrick(app, 'heelflip');
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(find.text('WAITING FOR OPPONENT'), findsOneWidget);
+      expect(find.text(recordEntryLabel), findsNothing);
+    });
+
+    testWidgets('is absent in state 5 — the peer is the one defending', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.setTrick('nollie flip');
+      app.reportResult(true);
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(app.game.phase, GamePhase.defending);
+      expect(find.text(recordEntryLabel), findsNothing);
+    });
+
+    testWidgets('is absent in state 6 — the game is over', (tester) async {
+      final app = _seatThatSetsFirst();
+      _playUntilPeerSpellsSkate(app);
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(app.game.phase, GamePhase.gameOver);
+      expect(find.text(recordEntryLabel), findsNothing);
+    });
+
+    testWidgets('survives reconnect grace — filming is local (ADR-008)', (
+      tester,
+    ) async {
+      final app = _seatThatSetsFirst();
+      app.setTrick('kickflip');
+      app.handlePeerDisconnected(_peerId, 120);
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      // The intents are shut because they cannot reach the peer…
+      final landed = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.text('LANDED'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(landed.onPressed, isNull);
+      // …but a clip has nothing to do with the peer, so it stays live.
+      expect(find.text(recordEntryLabel), findsOneWidget);
+      final entry = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text(recordEntryLabel),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(entry.onPressed, isNotNull);
+
+      await _leaveMatchScreen(tester);
+    });
+  });
+
+  group(
+    'the Record entry — no camera (the VM, and the Producer\'s desktop)',
+    () {
+      setUp(() => CameraAvailability.debugSetProbe(() async => false));
+      tearDown(() => CameraAvailability.debugSetProbe(null));
+
+      testWidgets('is absent even in states 2 and 4', (tester) async {
+        final app = _seatThatSetsFirst();
+        app.setTrick('kickflip');
+        await _pumpMatch(tester, app);
+        await tester.pump();
+
+        expect(find.text('LANDED'), findsOneWidget); // state 2, definitely
+        expect(find.text(recordEntryLabel), findsNothing);
+
+        await _leaveMatchScreen(tester);
+      });
+    },
+  );
+
+  group('the Record entry — the real probe', () {
+    // A plain `test`, not a `testWidgets`: this one makes a genuine platform
+    // channel call, and inside testWidgets' fake-async clock a channel reply
+    // never arrives. That trap is exactly what this group exists to pin down.
+    test('answers "no camera" here rather than throwing', () async {
+      // No seam at all — what the rest of the suite runs with, and what the
+      // Producer's Linux desktop build gets.
+      CameraAvailability.debugSetProbe(null);
+      expect(await CameraAvailability.isAvailable, isFalse);
+    });
+
+    testWidgets('so the entry never renders on this machine', (tester) async {
+      CameraAvailability.debugSetProbe(null);
+
+      final app = _seatThatSetsFirst();
+      app.setTrick('kickflip');
+      await _pumpMatch(tester, app);
+      await tester.pump();
+
+      expect(find.text('LANDED'), findsOneWidget); // state 2, definitely
+      expect(find.text(recordEntryLabel), findsNothing);
 
       await _leaveMatchScreen(tester);
     });
