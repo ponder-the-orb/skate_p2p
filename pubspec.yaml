@@ -37,6 +37,18 @@ dependencies:
   web_socket_channel: ^3.0.1
   provider: ^6.1.5+1
 
+  # Clips (ADR-008). Producer-approved 2026-09-02. None of these are used by
+  # lib/game, lib/core or the relay; camera and video_player have no Linux
+  # desktop implementation, which lib/media and the record entry are built to
+  # tolerate rather than require.
+  camera: ^0.12.0+2
+  video_player: ^2.14.0
+  share_plus: ^13.3.0
+  # Resolves the app documents directory ADR-008 names as the clips root.
+  # Already in the tree transitively via share_plus; declared so the import is
+  # legal (`depend_on_referenced_packages`).
+  path_provider: ^2.1.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
