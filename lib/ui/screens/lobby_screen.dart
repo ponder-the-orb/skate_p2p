@@ -4,6 +4,10 @@ import 'package:flutter/services.dart';
 import '../../core/state/app_state.dart';
 import '../../core/network/signaling_service.dart';
 import '../../core/network/packet_codec.dart';
+import 'clip_replay_screen.dart';
+
+/// The lobby's way into the local clip library.
+const String myClipsLabel = 'MY CLIPS';
 
 class LobbyScreen extends StatefulWidget {
   final AppState appState;
@@ -293,6 +297,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // Clips are local and have nothing to do with a match (ADR-008), so
+        // the way in is a quiet side door on the idle lobby.
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const MyClipsScreen(),
+            ),
+          ),
+          icon: const Icon(Icons.video_library, size: 18, color: Colors.grey),
+          label: const Text(
+            myClipsLabel,
+            style: TextStyle(
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
             ),
           ),
         ),
