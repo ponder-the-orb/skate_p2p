@@ -47,7 +47,7 @@ decides how (inside the ticket), the Producer decides whether.**
    for b in $(git branch -r | grep -v HEAD | sed 's|origin/||'); do
      echo "$b: $(git log --oneline main..origin/$b | wc -l) unmerged commits"
    done
-   git ls-remote origin 'refs/pull/*' | tail -4   # highest PR number
+   git ls-remote origin 'refs/pull/*/head' | sed 's|.*/pull/||;s|/head||' | sort -n | tail -1   # highest PR number
    ```
 4. **Reconcile.** Where the memory/summary disagrees with git, git wins.
    Correct the summary out loud.
@@ -91,6 +91,10 @@ Rules of thumb:
 - **Tickets are files.** `tickets/M<n>-T<n.m>.md`, committed before the
   session. The entire prompt to the seat is: *Work tickets/<id>.md*. This
   is how "I pasted the wrong ticket" became impossible.
+- **Remote Producer.** When the seat is launched from a phone (Remote
+  Control), the ticket file lands as the branch's *first* commit instead of
+  on `main` beforehand. Same path, same review; nothing touches `main`
+  without the merge click.
 
 ---
 
