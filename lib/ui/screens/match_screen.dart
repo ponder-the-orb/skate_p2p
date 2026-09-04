@@ -508,6 +508,12 @@ class _Scoreboard extends StatelessWidget {
 
 /// S·K·A·T·E for one player. The most recently gained letter is filled red so
 /// a new letter is impossible to miss; earlier ones stay quiet.
+///
+/// Both rows are wrapped in a scale-down [FittedBox]: the tiles keep their
+/// designed size wherever there is room for them, and shrink together —
+/// emphasis and all — rather than overflowing on a narrow phone. Each half of
+/// the scoreboard gets the same width, so the two tracks shrink by the same
+/// factor and stay in step.
 class _LetterTrack extends StatelessWidget {
   final String label;
   final int letters;
@@ -526,50 +532,61 @@ class _LetterTrack extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: isUp ? _accent : _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-              ),
-            ),
-            if (isUp) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: _accent,
-                  borderRadius: BorderRadius.circular(4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: isUp ? _accent : _muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
                 ),
-                child: const Text(
-                  'UP',
-                  style: TextStyle(
-                    color: _bg,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
+              ),
+              if (isUp) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _accent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'UP',
+                    style: TextStyle(
+                      color: _bg,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            for (var i = 0; i < _skate.length; i++) ...[
-              if (i > 0) const SizedBox(width: 6),
-              _LetterBox(
-                letter: _skate[i],
-                gained: i < letters,
-                latest: i == letters - 1,
-              ),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              for (var i = 0; i < _skate.length; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                _LetterBox(
+                  letter: _skate[i],
+                  gained: i < letters,
+                  latest: i == letters - 1,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ],
     );

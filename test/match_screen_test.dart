@@ -659,6 +659,148 @@ void main() {
       await _leaveMatchScreen(tester);
     });
   });
+
+  // A RenderFlex that runs out of room reports a FlutterError while painting,
+  // and a reported FlutterError fails a widget test. So every test in here
+  // passes only while both letter tracks actually fit: "no stripes on an A14"
+  // is an assertion, not an eyeball.
+  group('the letter tracks on a narrow phone', () {
+    for (final width in _narrowWidths) {
+      testWidgets('fit at ${width.toInt()}px with no letters yet', (
+        tester,
+      ) async {
+        _pumpAtLogicalWidth(tester, width);
+        await _pumpMatch(tester, _board(mine: 0, theirs: 0));
+
+        expect(find.text('YOU'), findsOneWidget);
+        expect(find.text('UP'), findsOneWidget); // I am the setter here
+        expect(find.text('E'), findsNWidgets(2));
+
+        await _leaveMatchScreen(tester);
+      });
+
+      testWidgets('fit at ${width.toInt()}px at 3-2 with the peer up', (
+        tester,
+      ) async {
+        _pumpAtLogicalWidth(tester, width);
+        await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+
+        // The long label and its UP chip share the narrower half.
+        expect(find.text('OPPONENT'), findsOneWidget);
+        expect(tester.getRect(find.text('UP')).right, lessThanOrEqualTo(width));
+
+        await _leaveMatchScreen(tester);
+      });
+
+      testWidgets('fit at ${width.toInt()}px at 5-4, overlay and all', (
+        tester,
+      ) async {
+        _pumpAtLogicalWidth(tester, width);
+        // Game over stacks the overlay's own padding on top of the board's,
+        // so this is the tightest the tracks are ever drawn.
+        await _pumpMatch(
+          tester,
+          _board(mine: 5, theirs: 4, phase: 3, winnerId: _peerId),
+        );
+
+        expect(find.text('YOU LOSE'), findsOneWidget);
+        // Two tracks on the overlay, two on the board behind it.
+        expect(find.text('E'), findsNWidgets(4));
+
+        await _leaveMatchScreen(tester);
+      });
+    }
+
+    testWidgets('the newest letter stays the biggest after shrinking', (
+      tester,
+    ) async {
+      _pumpAtLogicalWidth(tester, 320);
+      await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+
+      // My track holds three letters, so 'A' is the newest and 'S' is old news.
+      final newest = tester.getRect(find.text('A').first).height;
+      final older = tester.getRect(find.text('S').first).height;
+      expect(newest, greaterThan(older));
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('a roomy screen is left exactly as it was designed', (
+      tester,
+    ) async {
+      _pumpAtLogicalWidth(tester, 412); // the A14's own width
+      await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+      final roomy = tester.getRect(find.text('S').first).size;
+      await _leaveMatchScreen(tester);
+
+      _pumpAtLogicalWidth(tester, 800);
+      await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+      expect(tester.getRect(find.text('S').first).size, roomy);
+
+      await _leaveMatchScreen(tester);
+    });
+
+    testWidgets('a cramped screen shrinks them rather than clipping', (
+      tester,
+    ) async {
+      _pumpAtLogicalWidth(tester, 320);
+      await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+      final cramped = tester.getRect(find.text('S').first).height;
+      await _leaveMatchScreen(tester);
+
+      _pumpAtLogicalWidth(tester, 800);
+      await _pumpMatch(tester, _peerDefending(mine: 3, theirs: 2));
+      expect(cramped, lessThan(tester.getRect(find.text('S').first).height));
+
+      await _leaveMatchScreen(tester);
+    });
+  });
+}
+
+/// The two widths the Producer's A14 and its smaller cousins land on.
+const List<double> _narrowWidths = [320, 360];
+
+/// Squeezes the test view to [width] logical pixels and puts it back
+/// afterwards, so a resized view can never leak into the next test.
+void _pumpAtLogicalWidth(WidgetTester tester, double width) {
+  tester.view.devicePixelRatio = 1.0;
+  tester.view.physicalSize = Size(width, 800);
+  addTearDown(tester.view.reset);
+}
+
+/// State 5 at an exact score: I set, the peer defends, so the peer carries the
+/// UP chip beside the long 'OPPONENT' label — the widest a label row ever gets.
+/// Nothing is being attempted by *me*, so no countdown joins the screen.
+AppState _peerDefending({required int mine, required int theirs}) =>
+    _board(mine: mine, theirs: theirs, phase: 2);
+
+/// Poses a board with exact letter counts by way of the rejoiner's snapshot —
+/// the one public path that installs a whole game in a single move.
+AppState _board({
+  required int mine,
+  required int theirs,
+  int phase = 1,
+  int? winnerId,
+}) {
+  final app = AppState();
+  app.setConnectionStatus(true);
+  app.handleJoined(playerId: _myId, roomCode: 41235, role: 1);
+  app.handlePeerReconnected(_peerId);
+  app.applyStateSync(
+    StateSyncPacket(
+      senderId: _peerId,
+      phase: phase,
+      setterId: _myId,
+      defenderId: _peerId,
+      firstSetterId: _myId,
+      winnerId: winnerId,
+      letters: {_myId: mine, _peerId: theirs},
+      rematchVotes: const {},
+      trickDeclared: phase == 2,
+      trickName: phase == 2 ? 'kickflip' : null,
+    ),
+  );
+  return app;
 }
 
 /// Tears the screen down so a running countdown can't outlive its test.
