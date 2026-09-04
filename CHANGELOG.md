@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-09-04
+
 ### M3-T3.1 — Preset trick list
 - New `lib/ui/data/trick_presets.dart`: one `const List<String> trickPresets` of 23 common street tricks, ordered roughly easy → hard. It lives under `ui/` because it is picker content, not a rule — the engine, the codec and the relay are untouched by this ticket.
 - `MatchScreen` state 1 (I'm the setter, nothing declared) gains a horizontally scrollable chip row above the trick field. Tapping a chip **fills** the field and leaves it editable; SET remains the single path that declares a trick. Chips never appear in any other state.

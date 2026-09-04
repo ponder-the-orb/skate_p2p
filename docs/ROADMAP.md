@@ -97,3 +97,5 @@ horizontal relay scaling (single-process room map is fine until it isn't).
 · Matchmaking + verified-pro flair (banners)
 · Clip delivery in-app via WebRTC data channels (ADR-005)
 · Hardware someday: tracking tripod for solo filming
+· AttemptTimer row overflows at ≤320 logical under the test font only
+  (T3.5 report) — pin only if a real device ever shows it.
