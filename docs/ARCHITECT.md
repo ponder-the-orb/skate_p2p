@@ -140,6 +140,9 @@ Ceremony never precedes substance. In order:
 
 1. **Certify:** `git log main..<branch>` prints nothing for *every* branch of
    the milestone.
+   - After a rebase/squash merge, certify by content — `git diff
+     origin/<branch> main -- <ticket FILES>` must be empty — then delete the
+     branch; unswept rebase-merged branches read as unmerged forever.
 2. **Manual acceptance** from `ROADMAP.md` passed on real devices.
 3. **Close-out docs commit:** ADR amendments, CHANGELOG release section,
    survival-guide scars.

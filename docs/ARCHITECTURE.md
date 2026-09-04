@@ -157,7 +157,9 @@ manual-start only (privacy), has ZERO effect on game state (honor
 system, §5), and a recorded clip is explicitly NOT proof of one
 attempt — ranked play, if ever built, requires live-witnessed attempts.
 Dependencies `camera`, `video_player`, `share_plus` re-enter pubspec
-per this ADR; Producer approved all three, 2026-09-02.
+per this ADR; Producer approved all three, 2026-09-02, plus
+`path_provider` ^2.1.6 (approved mid-ticket 2026-09-02; resolves the
+clips directory).
 
 ## 8. Known issues in the current code (audit, validated 2026-08-25)
 
