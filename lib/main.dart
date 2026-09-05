@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/network/packet_dispatcher.dart';
 import 'core/network/signaling_service.dart';
 import 'core/state/app_state.dart';
+import 'ui/clip_environment.dart';
 import 'ui/screens/lobby_screen.dart';
 import 'ui/screens/match_screen.dart';
 
@@ -39,6 +40,10 @@ void main() {
     signalingService.disconnect();
     doConnect();
   });
+
+  // Fire-and-forget: `path_provider` is a platform round trip and the lobby
+  // must not wait on it. Until it lands, Rejoin is simply not offered.
+  resolveRejoinStore().then(appState.attachRejoinStore);
 
   doConnect();
 

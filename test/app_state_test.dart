@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,7 @@ import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/network/packet_dispatcher.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
 import 'package:skate_p2p/game/game_engine.dart';
+import 'package:skate_p2p/media/rejoin_store.dart';
 
 /// Two AppStates wired to each other the way the relay wires two phones:
 /// whatever one sends, the other's dispatcher receives. Nothing else crosses.
@@ -412,6 +414,170 @@ void main() {
       expect(table.joiner.peerDisconnected, isFalse);
       expect(table.joiner.graceSeconds, equals(0));
       expect(table.joiner.awaitingSync, isFalse);
+    });
+  });
+
+  group('rejoin persistence rides the grace window', () {
+    late Directory documents;
+    late RejoinStore store;
+
+    setUp(() {
+      documents = Directory.systemTemp.createTempSync('skate_rejoin_state');
+      store = RejoinStore(documents);
+    });
+
+    tearDown(() {
+      if (documents.existsSync()) {
+        documents.deleteSync(recursive: true);
+      }
+    });
+
+    /// An AppState mid-game with the store attached, exactly as `main.dart`
+    /// wires it. Player 7 created the room and is the setter.
+    AppState seated({int roomCode = 41235}) {
+      final state = AppState()..attachRejoinStore(store);
+      state.setSendCallback((_) {});
+      state.setConnectionStatus(true);
+      state.handleJoined(playerId: 7, roomCode: roomCode, role: 1);
+      state.handlePeerJoined(8);
+      return state;
+    }
+
+    /// The hooks fire unawaited, but the store serialises its own writes — so
+    /// a `load()` queued after them is queued *behind* them.
+    Future<RejoinRecord?> settled() => store.load();
+
+    /// Forty minutes ago, truncated to whole milliseconds — the record round
+    /// trips through `millisecondsSinceEpoch`, so a microsecond-precise
+    /// `DateTime.now()` would never compare equal to what comes back.
+    DateTime staleTimestamp() => DateTime.fromMillisecondsSinceEpoch(
+      DateTime.now().millisecondsSinceEpoch -
+          const Duration(minutes: 40).inMilliseconds,
+    );
+
+    test('JOINED saves the room and the seat', () async {
+      final state = AppState()..attachRejoinStore(store);
+      state.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+
+      final record = await settled();
+      expect(record, isNotNull);
+      expect(record!.roomCode, equals(41235));
+      expect(record.playerId, equals(7));
+    });
+
+    test('a local game opcode touches the save', () async {
+      final state = seated();
+      final stale = staleTimestamp();
+      await store.save(41235, 7, at: stale);
+
+      state.setTrick('kickflip');
+
+      final record = await settled();
+      // Freshness is last activity, not join time: a long game stays offerable.
+      expect(record!.savedAt.isAfter(stale), isTrue);
+      expect(record.roomCode, equals(41235));
+      expect(record.playerId, equals(7));
+    });
+
+    test('a remote game opcode touches the save', () async {
+      final state = seated();
+      final stale = staleTimestamp();
+      await store.save(41235, 7, at: stale);
+
+      state.applyRemoteEvent(TrickSetPacket(senderId: 8, name: 'ollie'));
+
+      // Player 8 is defending, so the engine rejects this — nothing was
+      // applied, so nothing is touched.
+      expect((await settled())!.savedAt, equals(stale));
+
+      state.setTrick('kickflip');
+      state.reportResult(true);
+      state.applyRemoteEvent(AttemptResultPacket(senderId: 8, landed: false));
+
+      expect((await settled())!.savedAt.isAfter(stale), isTrue);
+    });
+
+    test('touching never invents a save the player never had', () async {
+      final state = AppState()..attachRejoinStore(store);
+      state.setSendCallback((_) {});
+      state.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      state.handlePeerJoined(8);
+      await store.clear();
+
+      state.setTrick('kickflip');
+
+      expect(await settled(), isNull);
+    });
+
+    test('room-not-found after a Rejoin tap clears the save', () async {
+      final state = AppState()..attachRejoinStore(store);
+      await store.save(41235, 7);
+
+      state.markRejoinAttempt(41235);
+      state.handleRoomError(0x02);
+
+      expect(await settled(), isNull);
+      expect(state.errorNotice, equals('Room not found'));
+    });
+
+    test('room-not-found after a mistyped manual join keeps the save', () async {
+      final state = AppState()..attachRejoinStore(store);
+      await store.save(41235, 7);
+
+      // No markRejoinAttempt: the player typed 99999 by hand and fat-fingered
+      // it. That must never cost them the game they are still inside grace of.
+      state.handleRoomError(0x02);
+
+      expect((await settled())!.roomCode, equals(41235));
+    });
+
+    test('room-full after a Rejoin tap keeps the save', () async {
+      final state = AppState()..attachRejoinStore(store);
+      await store.save(41235, 7);
+
+      state.markRejoinAttempt(41235);
+      state.handleRoomError(0x01);
+
+      expect((await settled())!.roomCode, equals(41235));
+    });
+
+    test(
+      'the pending flag does not survive the answer it waited for',
+      () async {
+        final state = AppState()..attachRejoinStore(store);
+        await store.save(41235, 7);
+
+        state.markRejoinAttempt(41235);
+        state.handleRoomError(0x01); // an ERROR clears it, whatever the code
+        state.handleRoomError(0x02); // so this one is a plain manual failure
+
+        expect((await settled())!.roomCode, equals(41235));
+      },
+    );
+
+    test('a JOINED clears the pending flag too', () async {
+      final state = AppState()..attachRejoinStore(store);
+
+      state.markRejoinAttempt(41235);
+      state.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      state.handleRoomError(0x02); // a later, unrelated manual mistype
+
+      expect((await settled())!.roomCode, equals(41235));
+    });
+
+    test('with no store attached the feature is silently off', () async {
+      final state = AppState();
+      state.setSendCallback((_) {});
+
+      // Every hook, on a state that never got a store. None of them may throw
+      // — which is what every pre-existing test in this file relies on.
+      state.handleJoined(playerId: 7, roomCode: 41235, role: 1);
+      state.handlePeerJoined(8);
+      state.setTrick('kickflip');
+      state.markRejoinAttempt(41235);
+      state.handleRoomError(0x02);
+
+      expect(state.rejoinStore, isNull);
     });
   });
 }
