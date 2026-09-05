@@ -4,19 +4,36 @@ import 'package:flutter/services.dart';
 import '../../core/state/app_state.dart';
 import '../../core/network/signaling_service.dart';
 import '../../core/network/packet_codec.dart';
+import '../../media/rejoin_store.dart';
 import 'clip_replay_screen.dart';
 
 /// The lobby's way into the local clip library.
 const String myClipsLabel = 'MY CLIPS';
 
+/// The lobby's way back into the game the app was killed out of.
+const String rejoinLabel = 'REJOIN LAST GAME';
+
+/// How stale a save may be and still be worth offering. Grace is 120 s
+/// (PROTOCOL.md §5, announced on the wire and never hardcoded as *the rule*);
+/// the extra 60 covers the relaunch itself.
+///
+/// A display heuristic and nothing more. The client never concludes a room is
+/// dead — only the server knows that, and it says so with `0x0F 0x02`.
+const Duration rejoinFreshness = Duration(seconds: 180);
+
 class LobbyScreen extends StatefulWidget {
   final AppState appState;
   final SignalingService signalingService;
+
+  /// Overrides the store `main.dart` attached to [appState]. Tests pass a
+  /// temp-directory store here; the app never sets it.
+  final RejoinStore? rejoinStore;
 
   const LobbyScreen({
     super.key,
     required this.appState,
     required this.signalingService,
+    this.rejoinStore,
   });
 
   @override
@@ -27,10 +44,37 @@ class _LobbyScreenState extends State<LobbyScreen> {
   final TextEditingController _codeController = TextEditingController();
   bool _isJoinEnabled = false;
 
+  /// The last game, if it is recent enough to offer. Read once — a lobby that
+  /// re-read the disk on every rebuild would be doing IO inside build().
+  RejoinRecord? _rejoin;
+
   @override
   void initState() {
     super.initState();
     _codeController.addListener(_onCodeChanged);
+    _loadRejoin();
+  }
+
+  Future<void> _loadRejoin() async {
+    final store = widget.rejoinStore ?? widget.appState.rejoinStore;
+    if (store == null) return; // Feature off: no store, no button, no error.
+
+    final record = await store.load();
+    if (!mounted) return;
+    if (record == null || record.age() > rejoinFreshness) return;
+
+    setState(() => _rejoin = record);
+  }
+
+  /// A plain JOIN with the saved code — nothing else goes on the wire. The
+  /// server re-seats the original playerId itself (PROTOCOL.md §5), so the
+  /// saved id is never sent; it is remembered for the logs.
+  void _onRejoinPressed(RejoinRecord record) {
+    widget.appState.clearNotice();
+    widget.appState.markRejoinAttempt(record.roomCode);
+    widget.signalingService.sendBinary(
+      PacketCodec.encodeJoin(roomCode: record.roomCode, senderId: 0x0000),
+    );
   }
 
   @override
@@ -159,6 +203,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Widget _buildLobbyIdleSection() {
     final notice = widget.appState.notice;
     final errorNotice = widget.appState.errorNotice;
+    final rejoin = _rejoin;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -183,6 +228,33 @@ class _LobbyScreenState extends State<LobbyScreen> {
             textColor: Colors.redAccent,
           ),
           const SizedBox(height: 20),
+        ],
+
+        // The way back into a game this app was killed out of. Above CREATE
+        // ROOM because that is the whole point: the player who relaunches
+        // mid-game wants one tap, not a remembered code.
+        if (rejoin != null) ...[
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber.shade700,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () => _onRejoinPressed(rejoin),
+            icon: const Icon(Icons.replay, size: 20),
+            label: Text(
+              '$rejoinLabel  ·  ${rejoin.roomCode.toString().padLeft(5, '0')}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
 
         // Create Room Section
