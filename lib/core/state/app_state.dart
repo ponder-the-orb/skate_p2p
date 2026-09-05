@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../game/game_engine.dart';
+import '../../media/rejoin_store.dart';
 import '../network/packet_codec.dart';
 
 enum ClientPhase { disconnected, lobbyIdle, waitingForPeer, inMatch }
@@ -34,6 +37,18 @@ class AppState extends ChangeNotifier {
   void Function()? _reconnectCallback;
   void Function(Uint8List)? _sendCallback;
 
+  /// Where the last room is remembered across a kill (PROTOCOL.md §5's grace,
+  /// turned into a habit). Null until `main.dart` resolves one — and null is a
+  /// working state: every use below is null-safe, so a test, or a platform
+  /// where the documents directory never answers, simply has the feature off.
+  RejoinStore? _rejoinStore;
+
+  /// Set by the lobby's Rejoin tap and cleared by the JOINED or ERROR that
+  /// answers it. It exists for exactly one decision: a "room not found" is
+  /// only allowed to delete the save if the save is what we tried to use. A
+  /// mistyped manual code must never wipe a live game.
+  int? _pendingRejoinCode;
+
   // Getters
   ClientPhase get phase => _phase;
   int? get playerId => _playerId;
@@ -49,6 +64,14 @@ class AppState extends ChangeNotifier {
   int get graceSeconds => _graceSeconds;
   bool get awaitingSync => _awaitingSync;
 
+  /// The attached store, or null when the feature is off. The lobby reads this
+  /// to decide whether it can offer a Rejoin at all.
+  RejoinStore? get rejoinStore => _rejoinStore;
+
+  /// The code a Rejoin tap is currently waiting on an answer for, or null.
+  /// Exposed so the lobby's tap can be asserted without going near the disk.
+  int? get pendingRejoinCode => _pendingRejoinCode;
+
   void setReconnectCallback(void Function() callback) {
     _reconnectCallback = callback;
   }
@@ -57,6 +80,29 @@ class AppState extends ChangeNotifier {
   /// never imports the socket layer.
   void setSendCallback(void Function(Uint8List) callback) {
     _sendCallback = callback;
+  }
+
+  /// Wired in `main.dart` once `path_provider` has answered. Fire-and-forget:
+  /// the app is already running by the time this lands, and the only thing
+  /// that changes is whether the next lobby build can offer a Rejoin.
+  void attachRejoinStore(RejoinStore store) {
+    _rejoinStore = store;
+  }
+
+  /// Records that the JOIN now in flight came from the Rejoin button.
+  void markRejoinAttempt(int roomCode) {
+    _pendingRejoinCode = roomCode;
+  }
+
+  /// Keeps the save fresh on game activity, so a long match doesn't age out of
+  /// the lobby's window while it is still being played.
+  ///
+  /// Unawaited on purpose: these run inside notifier paths, and dispatch must
+  /// never wait on a disk write (the store serialises its own writes).
+  void _touchRejoin() {
+    final store = _rejoinStore;
+    if (store == null) return;
+    unawaited(store.touch());
   }
 
   void triggerReconnect() {
@@ -140,6 +186,8 @@ class AppState extends ChangeNotifier {
       debugPrint(
         '[-] Engine rejected remote event: ${_game.lastRejectedReason}',
       );
+    } else {
+      _touchRejoin();
     }
     notifyListeners();
   }
@@ -155,6 +203,7 @@ class AppState extends ChangeNotifier {
       debugPrint('[-] Engine rejected local event: ${next.lastRejectedReason}');
       return false;
     }
+    _touchRejoin();
     return true;
   }
 
@@ -181,6 +230,16 @@ class AppState extends ChangeNotifier {
     _role = role;
     _errorNotice = null;
     _phase = role == 1 ? ClientPhase.waitingForPeer : ClientPhase.inMatch;
+
+    // The seat is ours; remember it. Whether we got here by creating, typing a
+    // code or tapping Rejoin, the answer arrived — so the pending flag has
+    // done its job either way.
+    _pendingRejoinCode = null;
+    final store = _rejoinStore;
+    if (store != null) {
+      unawaited(store.save(roomCode, playerId));
+    }
+
     notifyListeners();
   }
 
@@ -256,6 +315,7 @@ class AppState extends ChangeNotifier {
     _awaitingSync = false;
     _peerDisconnected = false;
     _phase = ClientPhase.inMatch;
+    _touchRejoin();
     notifyListeners();
   }
 
@@ -323,10 +383,19 @@ class AppState extends ChangeNotifier {
   }
 
   void handleRoomError(int errorCode) {
+    final wasRejoin = _pendingRejoinCode != null;
+    _pendingRejoinCode = null;
+
     if (errorCode == 0x01) {
       _errorNotice = "Room full";
     } else if (errorCode == 0x02) {
       _errorNotice = "Room not found";
+      // The room we remembered is gone — grace expired, or it never survived
+      // the kill. Forget it, but ONLY when it was the saved code we tried:
+      // a fat-fingered manual join must not cost the player their game.
+      if (wasRejoin) {
+        unawaited(_rejoinStore?.clear() ?? Future<void>.value());
+      }
     } else {
       _errorNotice =
           "Error 0x${errorCode.toRadixString(16).padLeft(2, '0').toUpperCase()}";
