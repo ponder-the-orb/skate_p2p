@@ -2,6 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../media/clip_store.dart';
+import '../media/rejoin_store.dart';
 
 /// The platform edge of the clips feature: the two questions that can only be
 /// answered by asking the device, kept in one small file so the screens below
@@ -59,3 +60,11 @@ class CameraAvailability {
 /// crossed.
 Future<ClipStore> resolveClipStore() async =>
     ClipStore(await getApplicationDocumentsDirectory());
+
+/// The app's real rejoin store, rooted at the same documents directory.
+///
+/// Mirrors [resolveClipStore], and for the same reason: `path_provider` is
+/// imported in this file and nowhere else (the ADR-008 rider), so `RejoinStore`
+/// stays a leaf that a test can hand a temp directory.
+Future<RejoinStore> resolveRejoinStore() async =>
+    RejoinStore(await getApplicationDocumentsDirectory());
