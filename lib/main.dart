@@ -42,8 +42,10 @@ void main() {
   });
 
   // Fire-and-forget: `path_provider` is a platform round trip and the lobby
-  // must not wait on it. Until it lands, Rejoin is simply not offered.
-  resolveRejoinStore().then(appState.attachRejoinStore);
+  // must not wait on it. Until it lands, Rejoin is simply not offered — and a
+  // platform that cannot answer for a documents directory means the feature is
+  // off, never a crash, so the rejection is swallowed here.
+  resolveRejoinStore().then(appState.attachRejoinStore).catchError((_) {});
 
   doConnect();
 
