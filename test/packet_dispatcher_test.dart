@@ -212,7 +212,7 @@ void main() {
       );
 
       expect(state.phase, equals(ClientPhase.lobbyIdle));
-      expect(state.errorNotice, equals('Room full'));
+      expect(state.errorNotice, equals(roomFullMessage));
     });
 
     test('ERROR (room not found) sets error notice on AppState', () {
@@ -223,7 +223,7 @@ void main() {
       );
 
       expect(state.phase, equals(ClientPhase.lobbyIdle));
-      expect(state.errorNotice, equals('Room not found'));
+      expect(state.errorNotice, equals(roomNotFoundMessage));
     });
   });
 

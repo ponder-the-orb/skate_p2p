@@ -8,6 +8,19 @@ import '../network/packet_codec.dart';
 
 enum ClientPhase { disconnected, lobbyIdle, waitingForPeer, inMatch }
 
+/// Lobby error copy. Written to be read by a player, not a protocol author:
+/// the wire's `ERROR 0x0F` codes (PROTOCOL.md §5) never reach the screen as
+/// numbers — except in [unknownErrorMessage], where the hex is the one thing a
+/// screenshot has to carry for anyone to diagnose it.
+const String roomFullMessage = "That room's full — grab a fresh code.";
+const String roomNotFoundMessage =
+    "No room with that code — it may have expired.";
+
+String unknownErrorMessage(int errorCode) {
+  final hex = errorCode.toRadixString(16).padLeft(2, '0').toUpperCase();
+  return "Something went sideways (0x$hex). Try again.";
+}
+
 class AppState extends ChangeNotifier {
   // Client phase and identity state variables
   ClientPhase _phase = ClientPhase.disconnected;
@@ -364,6 +377,15 @@ class AppState extends ChangeNotifier {
   void handlePeerLeft(int peerId) {
     _game = _game.apply(PeerLeft(peerId));
     _notice = "Peer left. Room cleared.";
+
+    // The server has stated the room is dead — a fact off the wire, not a
+    // conclusion this client drew, so forgetting the save honors ADR-003
+    // rather than bending it. Unawaited like every other store call: dispatch
+    // never waits on disk.
+    if (_game.phase == GamePhase.abandoned) {
+      unawaited(_rejoinStore?.clear() ?? Future<void>.value());
+    }
+
     _clearIdentity();
     triggerReconnect();
   }
@@ -387,9 +409,9 @@ class AppState extends ChangeNotifier {
     _pendingRejoinCode = null;
 
     if (errorCode == 0x01) {
-      _errorNotice = "Room full";
+      _errorNotice = roomFullMessage;
     } else if (errorCode == 0x02) {
-      _errorNotice = "Room not found";
+      _errorNotice = roomNotFoundMessage;
       // The room we remembered is gone — grace expired, or it never survived
       // the kill. Forget it, but ONLY when it was the saved code we tried:
       // a fat-fingered manual join must not cost the player their game.
@@ -397,8 +419,7 @@ class AppState extends ChangeNotifier {
         unawaited(_rejoinStore?.clear() ?? Future<void>.value());
       }
     } else {
-      _errorNotice =
-          "Error 0x${errorCode.toRadixString(16).padLeft(2, '0').toUpperCase()}";
+      _errorNotice = unknownErrorMessage(errorCode);
     }
     _phase = ClientPhase.lobbyIdle;
     notifyListeners();

@@ -7,6 +7,7 @@ import 'package:skate_p2p/core/network/packet_codec.dart';
 import 'package:skate_p2p/core/network/signaling_service.dart';
 import 'package:skate_p2p/core/state/app_state.dart';
 import 'package:skate_p2p/media/rejoin_store.dart';
+import 'package:skate_p2p/ui/build_info.dart';
 import 'package:skate_p2p/ui/screens/lobby_screen.dart';
 
 /// The Rejoin entry, exercised through a real store pointed at a temp
@@ -51,13 +52,16 @@ void main() {
     () => RejoinStore(documents).save(roomCode, playerId, at: at),
   );
 
-  /// An idle, connected lobby — the screen a relaunched app lands on.
+  /// An idle, connected lobby — the screen a relaunched app lands on. Pass
+  /// `connected: false` for the other half of the lobby's life, where the
+  /// status pill reads DISCONNECTED and offers a RETRY.
   Future<(AppState, _RecordingSignalingService)> pumpLobby(
     WidgetTester tester, {
     RejoinStore? injected,
     RejoinStore? attached,
+    bool connected = true,
   }) async {
-    final appState = AppState()..setConnectionStatus(true);
+    final appState = AppState()..setConnectionStatus(connected);
     if (attached != null) appState.attachRejoinStore(attached);
     final signaling = _RecordingSignalingService();
 
@@ -176,6 +180,39 @@ void main() {
     );
     // And the attempt is flagged, so a room-not-found may forget the save.
     expect(appState.pendingRejoinCode, equals(50412));
+  });
+
+  testWidgets('the lobby prints the build it is', (tester) async {
+    await pumpLobby(tester, injected: store);
+
+    // Cosmetic, and on every lobby state — including the disconnected one,
+    // which is exactly the screen a confused tester screenshots.
+    expect(find.text('v $appVersion'), findsOneWidget);
+
+    await pumpLobby(tester, injected: store, connected: false);
+    expect(find.text('v $appVersion'), findsOneWidget);
+  });
+
+  testWidgets('a disconnected lobby offers a RETRY that reconnects once', (
+    tester,
+  ) async {
+    final (appState, _) = await pumpLobby(tester, connected: false);
+
+    var reconnects = 0;
+    appState.setReconnectCallback(() => reconnects++);
+
+    expect(find.text('DISCONNECTED'), findsOneWidget);
+    await tester.tap(find.text(retryLabel));
+    await tester.pump();
+
+    expect(reconnects, equals(1));
+  });
+
+  testWidgets('a connected lobby has nothing to retry', (tester) async {
+    await pumpLobby(tester);
+
+    expect(find.text('CONNECTED'), findsOneWidget);
+    expect(find.text(retryLabel), findsNothing);
   });
 
   testWidgets('a mistyped manual join is not flagged as a rejoin', (
