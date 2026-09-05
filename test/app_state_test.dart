@@ -417,6 +417,37 @@ void main() {
     });
   });
 
+  group('room errors read like a person wrote them', () {
+    test('0x01 and 0x02 say what happened and what to do', () {
+      final state = AppState();
+
+      state.handleRoomError(0x01);
+      expect(
+        state.errorNotice,
+        equals("That room's full — grab a fresh code."),
+      );
+
+      state.handleRoomError(0x02);
+      expect(
+        state.errorNotice,
+        equals('No room with that code — it may have expired.'),
+      );
+      expect(state.phase, equals(ClientPhase.lobbyIdle));
+    });
+
+    test('an unrecognised code still carries its hex', () {
+      final state = AppState();
+
+      state.handleRoomError(0x07);
+
+      // The hex stays: a screenshot is the only diagnosis anyone gets.
+      expect(
+        state.errorNotice,
+        equals('Something went sideways (0x07). Try again.'),
+      );
+    });
+  });
+
   group('rejoin persistence rides the grace window', () {
     late Directory documents;
     late RejoinStore store;
@@ -517,7 +548,7 @@ void main() {
       state.handleRoomError(0x02);
 
       expect(await settled(), isNull);
-      expect(state.errorNotice, equals('Room not found'));
+      expect(state.errorNotice, equals(roomNotFoundMessage));
     });
 
     test('room-not-found after a mistyped manual join keeps the save', () async {
@@ -565,6 +596,21 @@ void main() {
       expect((await settled())!.roomCode, equals(41235));
     });
 
+    test(
+      'PEER_LEFT clears the save: the server said the room is dead',
+      () async {
+        final state = seated();
+        await store.save(41235, 7);
+
+        state.handlePeerLeft(8);
+
+        // A fact off the wire, not a client conclusion — the one thing allowed
+        // to forget a game that grace might otherwise still be holding.
+        expect(state.game.phase, equals(GamePhase.abandoned));
+        expect(await settled(), isNull);
+      },
+    );
+
     test('with no store attached the feature is silently off', () async {
       final state = AppState();
       state.setSendCallback((_) {});
@@ -576,6 +622,7 @@ void main() {
       state.setTrick('kickflip');
       state.markRejoinAttempt(41235);
       state.handleRoomError(0x02);
+      state.handlePeerLeft(8);
 
       expect(state.rejoinStore, isNull);
     });
