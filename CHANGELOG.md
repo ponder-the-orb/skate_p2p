@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M4-T4.4a — Polish: version in the lobby, a Retry, friendlier errors
+- New `lib/ui/build_info.dart`: one declaration, `appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev')`. Top-level `const` for the same reason `relayUrl` is (T4.0) — `String.fromEnvironment` is only guaranteed to read the define inside a const context. Store builds pass `--dart-define=APP_VERSION=1.0.0-beta`; wiring that into the release command is T4.6.
+- The lobby prints a small, muted `v <version>` bottom-centre in **every** lobby state — the disconnected one included, which is exactly the screen a confused tester screenshots. Cosmetic only.
+- A disconnected lobby now offers an outlined **RETRY** directly under the DISCONNECTED pill, calling `AppState.triggerReconnect()`. Hidden while connected: there is nothing to retry.
+- Room error copy reads like a person wrote it. `0x01` → "That room's full — grab a fresh code."; `0x02` → "No room with that code — it may have expired."; anything else → "Something went sideways (0xNN). Try again." The hex stays in the unknown line: a screenshot is the only diagnosis anyone gets. The strings are named constants in `app_state.dart`, so the tests assert the copy rather than a duplicate of it.
+- `main.dart`'s `resolveRejoinStore().then(appState.attachRejoinStore)` gains `.catchError((_) {})` — a platform that cannot answer for a documents directory means Rejoin is off, never a crash.
+- PEER_LEFT now clears the rejoin save when the engine goes abandoned. The server has *stated* the room is dead — a fact off the wire, not a client conclusion — so acting on it honors ADR-003 rather than bending it. A `0x02` without a pending Rejoin still does not clear, as before.
+- `signaling_service.dart` is deliberately untouched: its status strings never reach the UI (only the `== 'Connected'` bool does), so there is nothing there to make friendly.
+- Tests: new `build_info_test.dart` pins the un-flagged default; `lobby_screen_test.dart` gains the version footer on both connection states, RETRY firing exactly one reconnect, and RETRY absent while connected; `app_state_test.dart` gains the three copy cases and PEER_LEFT-clears-the-save, and its no-store-attached case now calls `handlePeerLeft` too. `packet_dispatcher_test.dart`'s two error-notice assertions follow the copy.
+- Zero diff to `lib/game/`, `lib/core/network/`, `lib/media/`, `match_screen.dart`, the relay, the docs and `pubspec.yaml`. App label, icon and splash are T4.4b.
+
 ### M4-T4.7 — Rejoin persistence
 - New `lib/media/rejoin_store.dart`: a LEAF beside `clip_store.dart` (`dart:io`, `dart:convert`, `dart:core` — no Flutter, no packages), owning one `rejoin.json` in an injected directory. `save(roomCode, playerId)` · `touch()` (rewrites `savedAt` only) · `load()` · `clear()`. A missing, corrupt, wrong-shaped or wrong-typed file reads as "no save" and never throws: PROTOCOL.md §3's validation culture, applied to disk.
 - `AppState` gains `attachRejoinStore`, and hooks that are all null-safe — with no store attached the feature is silently off, which is the state every pre-existing test runs in. JOINED saves the seat; every *applied* game opcode (local, remote, and an installed STATE_SYNC) touches it, so freshness is last activity and a forty-minute game still reads fresh. Writes are unawaited: a notifier path never blocks on disk.
