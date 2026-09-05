@@ -31,20 +31,24 @@ dual-format rules (Appendix A) carried the legacy game packets until M2.
 - T2.3 Match screen rebuilt around the seven match states; win/lose overlay;
   rematch flow. (`v0.4.0` was tagged prematurely — see WORKFLOW §9.)
 
-## M3 — Polish & the trick layer (closing at `v0.5.0`)
+## M3 — Polish & the trick layer ✅ `v0.5.1`
 
 - T3.1 ✅ Preset trick chips (fill the field; SET is the only commit path)
 - T3.2 ✅ Advisory attempt countdown — never acts at zero (ADR-003)
 - T3.3 ✅ Reconnect grace — `PEER_DISCONNECTED 0x05` (announces
   `graceSeconds`), `PEER_RECONNECTED 0x06`, `STATE_SYNC 0x12`; the survivor
   snapshots, the rejoiner installs; zero engine lines changed
-- T3.4 ⏳ Clips — record → replay → share via the system share sheet
+- T3.4 ✅ Clips — record → replay → share via the system share sheet
   (ADR-008); deps `camera`, `video_player`, `share_plus`, `path_provider`
+- T3.5 ✅ Letter tracks scale down instead of overflowing narrow screens
+  (FittedBox)
 - Camera scope decision ✅ — resolved as ADR-008; in-app delivery deferred
   to ADR-005
 
 **Acceptance:** manual passes in `docs/DEV_SETUP.md` (grace: passed on
-hardware 2026-09-02; clips: pending).
+hardware 2026-09-02; clips: passed except three boxes owed on hardware —
+challenge line arrives with the shared clip, Delete removes from My clips,
+T3.5 stripes at 0/3/5 letters and game-over).
 
 ## M4 — Ship
 

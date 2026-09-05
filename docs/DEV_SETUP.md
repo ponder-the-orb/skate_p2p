@@ -32,9 +32,18 @@ flutter run -d <phone-serial>  # phone over USB
 ```
 
 The relay address is `relayUrl` in `lib/main.dart`, default
-`ws://127.0.0.1:8080`. Until M4-T4.0 makes it a build-time flag
-(`--dart-define=RELAY_URL=...`), a phone reaches the dev relay only through
-an adb tunnel (next section).
+`ws://127.0.0.1:8080`, and it is chosen per build with
+`--dart-define=RELAY_URL=...` — never by editing source:
+
+```bash
+flutter run -d <phone-serial> --dart-define=RELAY_URL=ws://<laptop-ip>:8080
+flutter build apk --dart-define=RELAY_URL=wss://relay.example.com
+```
+
+The value is baked in at compile time, so the flag goes on every `flutter
+run` **and** every `flutter build` — changing it means stopping the app and
+rerunning with the new value. Without the flag a phone reaches the dev relay
+only through an adb tunnel (next section).
 
 ## Phones and the adb tunnel — the rule that bites
 
@@ -57,10 +66,10 @@ T3.4), not a bug.
 
 | Situation | What works |
 |---|---|
-| Home wifi is a public/isolated network (devices can't see each other) | **Phone hotspot.** Phone A hotspots; laptop and phone B join it. That's a private LAN you carry everywhere; isolation gone, no cables. Point clients at the laptop's hotspot IP (needs T4.0's `RELAY_URL`, or edit `relayUrl` for the session). |
+| Home wifi is a public/isolated network (devices can't see each other) | **Phone hotspot.** Phone A hotspots; laptop and phone B join it. That's a private LAN you carry everywhere; isolation gone, no cables. Point clients at the laptop's hotspot IP via `--dart-define=RELAY_URL=ws://<laptop-ip>:8080`. |
 | Normal home LAN (e.g., at a friend's) | Skip adb entirely: run the relay on the laptop, point both phones at its LAN IP. Installing builds still needs a cable or wireless adb, one phone at a time. |
 | Wireless debugging pairs but "can't reach the server" | You didn't re-run `adb reverse` for that connection — or you're on a LAN and should use the IP instead. |
-| After M4-T4.1 (relay deployed to a free tier over `wss://`) | Phones connect from anywhere. The cable's only job is installing builds. |
+| After M4-T4.3 (relay deployed to a free tier over `wss://`) | Phones connect from anywhere. The cable's only job is installing builds. |
 
 ## Tests
 

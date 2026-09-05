@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M4-T4.0 — `RELAY_URL` build-time flag
+- `relayUrl` in `lib/main.dart` is now `String.fromEnvironment('RELAY_URL', defaultValue: 'ws://127.0.0.1:8080')` — the relay address is chosen per build with `--dart-define=RELAY_URL=...`, never by editing source. Same name, same default; the declaration stays a top-level `const`, because `String.fromEnvironment` is only guaranteed to read the define inside a const context.
+- The default stays localhost. Whether release builds point at the public relay is M4-T4.3's call.
+- No validation and no lobby display: a bad URL still lands in `SignalingService`'s "Connection Failed" path, and friendlier copy is M4-T4.4.
+- `docs/DEV_SETUP.md` "Run the client" documents the flag — that the value is baked in at compile time, so it goes on every `flutter run` *and* `flutter build`, with a LAN and a `wss://` example. The hotspot row now names the flag; the deployed-relay row points at T4.3, not T4.1.
+- Tests: `relay_url_test.dart` pins the un-flagged default, which is exactly what CI (T4.1) will run. The override is compile-time and cannot be unit tested; the Producer's manual pass proves it.
+- Zero diff to the engine, net, state, ui, media and relay.
+
 ## [0.5.1] — 2026-09-04
 
 ### M3-T3.1 — Preset trick list

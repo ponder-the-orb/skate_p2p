@@ -7,8 +7,16 @@ import 'core/state/app_state.dart';
 import 'ui/screens/lobby_screen.dart';
 import 'ui/screens/match_screen.dart';
 
-/// Relay endpoint. Localhost works through an ADB reverse tunnel in dev.
-const String relayUrl = 'ws://127.0.0.1:8080';
+/// Relay endpoint, baked in at compile time. Localhost works through an ADB
+/// reverse tunnel in dev; override per build to reach a relay elsewhere:
+/// `flutter run --dart-define=RELAY_URL=ws://192.168.1.20:8080`.
+///
+/// Must stay `const`: `String.fromEnvironment` is only guaranteed to read the
+/// define inside a const context.
+const String relayUrl = String.fromEnvironment(
+  'RELAY_URL',
+  defaultValue: 'ws://127.0.0.1:8080',
+);
 
 void main() {
   final appState = AppState();
