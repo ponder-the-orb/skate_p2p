@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M4-T4.7 — Rejoin persistence
+- New `lib/media/rejoin_store.dart`: a LEAF beside `clip_store.dart` (`dart:io`, `dart:convert`, `dart:core` — no Flutter, no packages), owning one `rejoin.json` in an injected directory. `save(roomCode, playerId)` · `touch()` (rewrites `savedAt` only) · `load()` · `clear()`. A missing, corrupt, wrong-shaped or wrong-typed file reads as "no save" and never throws: PROTOCOL.md §3's validation culture, applied to disk.
+- `AppState` gains `attachRejoinStore`, and hooks that are all null-safe — with no store attached the feature is silently off, which is the state every pre-existing test runs in. JOINED saves the seat; every *applied* game opcode (local, remote, and an installed STATE_SYNC) touches it, so freshness is last activity and a forty-minute game still reads fresh. Writes are unawaited: a notifier path never blocks on disk.
+- A `0x0F 0x02` "room not found" clears the save **only** when the attempt came from the Rejoin button (`markRejoinAttempt`, cleared by whichever JOINED or ERROR answers it). A mistyped manual code cannot delete a live game.
+- The lobby offers "REJOIN LAST GAME · <code>" above CREATE ROOM when `load()` returns a save less than 180 s old — grace is 120 s and the extra 60 covers the relaunch. A **display heuristic only**: the client never concludes a room is dead. Tapping a room that is gone takes the existing room-not-found path, which shows the friendly copy and now also forgets the save.
+- The tap sends a plain `JOIN` with the saved code and nothing else — the server re-seats the original `playerId` itself (PROTOCOL.md §5), so the saved id never goes on the wire.
+- `path_provider` stays imported in `lib/ui/clip_environment.dart` and nowhere else (the ADR-008 rider): `resolveRejoinStore()` mirrors `resolveClipStore()`, and `main.dart` wires it fire-and-forget with no `await` before `runApp`.
+- Tests: `rejoin_store_test.dart` (17) covers the whole leaf against temp directories, corrupt files included; `app_state_test.dart` gains the four hook cases plus room-full, the pending flag's lifetime, and the no-store-attached path; new `lobby_screen_test.dart` (9) covers fresh/stale/absent/corrupt saves, both store sources, and what each of the two buttons puts on the wire.
+- Client-only: zero diff to the wire, `lib/game/`, `lib/core/network/`, the relay, the docs and `pubspec.yaml`.
+
 ### M4-T4.1 — CI on GitHub Actions
 - New `.github/workflows/ci.yml`: every push (all branches) and every pull request runs the four commands `docs/DEV_SETUP.md` "Tests" names as the contract. No new secrets — the built-in read-only `GITHUB_TOKEN` and nothing else.
 - **Two parallel jobs**, so a relay-only failure reads as a relay failure and not as "CI is red". `flutter`: `flutter pub get` → `flutter analyze` → `dart format --output=none --set-exit-if-changed .` → `flutter test`. `relay`: `npm ci` in `skate_signaling_server/` → `node skate_signaling_server/test/rooms_smoke.js` (self-contained — it spawns its own relay on 8129 with `GRACE_MS=200`).
