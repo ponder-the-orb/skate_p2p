@@ -5,6 +5,7 @@ import '../../core/state/app_state.dart';
 import '../../core/network/signaling_service.dart';
 import '../../core/network/packet_codec.dart';
 import '../../media/rejoin_store.dart';
+import '../build_info.dart';
 import 'clip_replay_screen.dart';
 
 /// The lobby's way into the local clip library.
@@ -12,6 +13,9 @@ const String myClipsLabel = 'MY CLIPS';
 
 /// The lobby's way back into the game the app was killed out of.
 const String rejoinLabel = 'REJOIN LAST GAME';
+
+/// The offer a dead connection makes instead of a shrug.
+const String retryLabel = 'RETRY';
 
 /// How stale a save may be and still be worth offering. Grace is 120 s
 /// (PROTOCOL.md §5, announced on the wire and never hardcoded as *the rule*);
@@ -161,6 +165,35 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     ),
                   ),
                 ),
+
+                // A dead connection offers a button, not a shrug. Hidden while
+                // connected: there is nothing to retry.
+                if (!isConnected) ...[
+                  const SizedBox(height: 12),
+                  Center(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        foregroundColor: Colors.redAccent,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 28,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: widget.appState.triggerReconnect,
+                      child: const Text(
+                        retryLabel,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
 
                 // Main content depends on ClientPhase
@@ -190,6 +223,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         ],
                       ),
                     ),
+                  ),
+                ),
+
+                // Which build this is, quietly, under everything. A tester's
+                // screenshot carries its own version number.
+                Center(
+                  child: Text(
+                    'v $appVersion',
+                    style: const TextStyle(color: Colors.grey, fontSize: 11),
                   ),
                 ),
               ],
