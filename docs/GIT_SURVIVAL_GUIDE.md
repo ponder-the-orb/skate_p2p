@@ -142,3 +142,5 @@ If you type 'git commit' without '-m', Git opens Vim. Don't panic:
   docs flip) ran ahead of the substance (the merge). Lesson: a milestone
   is not closed until `git log main..<branch>` prints NOTHING for every
   branch of that milestone. Tags celebrate merges; they don't replace them.
+
+  Content-certified: clips are fully merged. The "4 unmerged" is a false alarm from the rebase-merge — orphaned hashes, not orphaned work — and main's only surplus over the branch is your docs pass. Real lesson banked: the branch sweep isn't cosmetic. Unswept rebase-merged branches will cry "unmerged" forever; deleting them after merge is what keeps certification honest. That gets one amendment line in ARCHITECT.md §5 during close-out.

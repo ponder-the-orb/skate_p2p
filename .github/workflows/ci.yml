@@ -1,0 +1,56 @@
+# CI — the four commands from docs/DEV_SETUP.md "Tests", on GitHub's runners.
+# Two jobs on purpose: a relay-only failure has to read as a relay failure.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# One run per ref: a push that lands while an older run is still going
+# cancels it. Public repo, minutes are free — this is for legibility.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Built-in GITHUB_TOKEN only, read-only. This workflow has no secrets.
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    name: flutter — analyze · format · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned to an exact version, never channel:stable — CI must not go
+      # red on a Flutter release that is not in our diff. Bump deliberately.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter test
+
+  relay:
+    name: relay — rooms smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: skate_signaling_server/package-lock.json
+
+      # `ws` is the relay's only dependency; the smoke test needs it present.
+      - run: npm ci
+        working-directory: skate_signaling_server
+
+      # Self-contained: spawns its own relay on 8129 with GRACE_MS=200.
+      - run: node skate_signaling_server/test/rooms_smoke.js

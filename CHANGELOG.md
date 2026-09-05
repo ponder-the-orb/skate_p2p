@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### M4-T4.1 — CI on GitHub Actions
+- New `.github/workflows/ci.yml`: every push (all branches) and every pull request runs the four commands `docs/DEV_SETUP.md` "Tests" names as the contract. No new secrets — the built-in read-only `GITHUB_TOKEN` and nothing else.
+- **Two parallel jobs**, so a relay-only failure reads as a relay failure and not as "CI is red". `flutter`: `flutter pub get` → `flutter analyze` → `dart format --output=none --set-exit-if-changed .` → `flutter test`. `relay`: `npm ci` in `skate_signaling_server/` → `node skate_signaling_server/test/rooms_smoke.js` (self-contained — it spawns its own relay on 8129 with `GRACE_MS=200`).
+- `subosito/flutter-action` is pinned to the **exact** version `3.47.0`, never `channel: stable`: a Flutter release that isn't in our diff must not turn the tree red. Bumping it is a deliberate edit. `cache: true` keeps the SDK download off the clock.
+- `actions/checkout` and `actions/setup-node` are pinned to `@v5`: the `@v4` majors still run, but GitHub's runners now force their Node 20 runtime onto Node 24 and annotate every run about it. Same reasoning as the exact Flutter pin — a deprecation on GitHub's calendar must not be the thing that turns this repo red.
+- Concurrency group per ref with `cancel-in-progress: true` — a new push supersedes its own in-flight run, so the Actions tab stays readable.
+- **Proven to bite, not just to pass.** A throwaway branch `m4/ci-bite-check` carries one commit adding a test that fails on purpose; its run goes red while `m4/ci` is green. Both run links are in `reports/M4-T4.1.md`. The branch is never opened as a PR and never merged.
+- No README badge (T4.5), no apk build, no `flutter build` of any kind: minutes spent are minutes waited. Zero diff to `lib/`, `test/`, the relay, `docs/` and `pubspec.yaml`.
+
 ### M4-T4.0 — `RELAY_URL` build-time flag
 - `relayUrl` in `lib/main.dart` is now `String.fromEnvironment('RELAY_URL', defaultValue: 'ws://127.0.0.1:8080')` — the relay address is chosen per build with `--dart-define=RELAY_URL=...`, never by editing source. Same name, same default; the declaration stays a top-level `const`, because `String.fromEnvironment` is only guaranteed to read the define inside a const context.
 - The default stays localhost. Whether release builds point at the public relay is M4-T4.3's call.
